@@ -300,6 +300,9 @@ public final class NativeObject extends AbstractSqueakObjectWithClassAndHash {
             return "forward to " + getForwardingPointer().toString();
         }
         final ClassObject squeakClass = getSqueakClass();
+        if (squeakClass == null) {
+            return "NativeObject(no class)";
+        }
         /*
          * This may be accessed from outside a context (when Truffle accesses sources), so we cannot
          * look up the context here.

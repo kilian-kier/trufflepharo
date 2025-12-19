@@ -320,17 +320,23 @@ public abstract class AbstractPointersObject extends AbstractSqueakObjectWithCla
     @Override
     public void pointersBecomeOneWay(final UnmodifiableEconomicMap<Object, Object> fromToMap) {
         super.pointersBecomeOneWay(fromToMap);
-        final Object migratedObject0 = fromToMap.get(object0);
-        if (migratedObject0 != null) {
-            object0 = migratedObject0;
+        if (object0 != null) {
+            final Object migratedObject0 = fromToMap.get(object0);
+            if (migratedObject0 != null) {
+                object0 = migratedObject0;
+            }
         }
-        final Object migratedObject1 = fromToMap.get(object1);
-        if (migratedObject1 != null) {
-            object1 = migratedObject1;
+        if (object1 != null) {
+            final Object migratedObject1 = fromToMap.get(object1);
+            if (migratedObject1 != null) {
+                object1 = migratedObject1;
+            }
         }
-        final Object migratedObject2 = fromToMap.get(object2);
-        if (migratedObject2 != null) {
-            object2 = migratedObject2;
+        if (object2 != null) {
+            final Object migratedObject2 = fromToMap.get(object2);
+            if (migratedObject2 != null) {
+                object2 = migratedObject2;
+            }
         }
         if (objectExtension != null) {
             ArrayUtils.replaceAll(objectExtension, fromToMap);

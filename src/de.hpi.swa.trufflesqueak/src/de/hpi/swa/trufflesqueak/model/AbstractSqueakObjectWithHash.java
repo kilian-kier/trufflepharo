@@ -18,6 +18,8 @@ import com.oracle.truffle.api.nodes.IndirectCallNode;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.profiles.InlinedBranchProfile;
 
+import de.hpi.swa.trufflesqueak.exceptions.ProcessSwitch;
+import de.hpi.swa.trufflesqueak.exceptions.Returns;
 import de.hpi.swa.trufflesqueak.exceptions.SqueakExceptions;
 import de.hpi.swa.trufflesqueak.image.SqueakImageChunk;
 import de.hpi.swa.trufflesqueak.image.SqueakImageConstants;
@@ -289,6 +291,14 @@ public abstract class AbstractSqueakObjectWithHash extends AbstractSqueakObject 
                 } else {
                     return IndirectCallNode.getUncached().call(method.getCallTarget(), FrameAccess.newWith(NilObject.SINGLETON, null, this, arguments));
                 }
+            } catch (final ProcessSwitch e) {
+                throw SqueakExceptions.SqueakException.create("Unexpected process switch during host-to-guest send of '" + selector + "'", e);
+            } catch (final Returns.AbstractStandardSendReturn r) {
+                /*
+                 * NonVirtualReturn or NonLocalReturn: the target context is not reachable from
+                 * host code, so treat the carried value as the result of the send.
+                 */
+                return r.getReturnValue();
             } finally {
                 image.interrupt.reactivate(wasActive);
             }
@@ -297,7 +307,9 @@ public abstract class AbstractSqueakObjectWithHash extends AbstractSqueakObject 
         }
     }
 
-    public abstract void pointersBecomeOneWay(UnmodifiableEconomicMap<Object, Object> fromToMap);
+    public void pointersBecomeOneWay(final UnmodifiableEconomicMap<Object, Object> fromToMap) {
+        // Nothing to do by default.
+    }
 
     public void tracePointers(final ObjectTracer objectTracer) {
         objectTracer.addIfUnmarked(getSqueakClass(objectTracer.image));

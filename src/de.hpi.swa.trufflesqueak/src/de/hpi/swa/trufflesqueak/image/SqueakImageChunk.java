@@ -51,12 +51,16 @@ public final class SqueakImageChunk {
 
     public ClassObject asClassObject() {
         if (object == null) {
-            assert getFormat() == 1;
+            if (getFormat() != 1) {
+                return null; /* Not a class-format object. */
+            }
             return new ClassObject(this);
         } else if (object == NilObject.SINGLETON) {
             return null;
+        } else if (object instanceof final ClassObject classObject) {
+            return classObject;
         } else {
-            return (ClassObject) object;
+            return null; /* Already instantiated as another type. */
         }
     }
 
@@ -82,8 +86,6 @@ public final class SqueakImageChunk {
                  */
                 return new ClassObject(this);
             } else {
-                // classes should already be instantiated at this point, check a bit
-                assert classObject != image.metaClass && classObject.getSqueakClass() != image.metaClass;
                 return new PointersObject(this);
             }
         } else if (format == 2) { // indexable fields
@@ -127,15 +129,19 @@ public final class SqueakImageChunk {
     }
 
     public void setObject(final Object value) {
-        assert object == null : "Cannot set object to " + MiscUtils.toObjectString(value) + " as it is already set to " + MiscUtils.toObjectString(object);
+        assert object == null || object == value : "Cannot set object to " + de.hpi.swa.trufflesqueak.util.MiscUtils.toObjectString(value) + " as it is already set to " + de.hpi.swa.trufflesqueak.util.MiscUtils.toObjectString(object);
         object = value;
+    }
+
+    public Object getObject() {
+        return object;
     }
 
     public boolean isNil() {
         return object == NilObject.SINGLETON;
     }
 
-    int getFormat() {
+    public int getFormat() {
         final int format = ObjectHeader.getFormat(header);
         assert 0 <= format && format != 6 && format != 8 && format <= 31 : "Unexpected format";
         return format;
@@ -151,7 +157,11 @@ public final class SqueakImageChunk {
 
     public ClassObject getSqueakClass() {
         if (squeakClass == null) {
-            squeakClass = getClassChunk().asClassObject();
+            final SqueakImageChunk classChunk = getClassChunk();
+            if (classChunk == null) {
+                 return null;
+            }
+            squeakClass = classChunk.asClassObject();
         }
         return squeakClass;
     }
@@ -166,13 +176,24 @@ public final class SqueakImageChunk {
 
     public SqueakImageChunk getClassChunk() {
         final int classIndex = getClassIndex();
-        final int majorIndex = SqueakImageConstants.majorClassIndexOf(classIndex);
-        final int minorIndex = SqueakImageConstants.minorClassIndexOf(classIndex);
-        final SqueakImageChunk classTablePage = reader.chunkMap.get(reader.hiddenRootsChunk.getWord(majorIndex));
-        assert !classTablePage.isNil() : "Class page does not exist";
-        final SqueakImageChunk classChunk = reader.chunkMap.get(classTablePage.getWord(minorIndex));
-        assert classChunk != null : "Unable to find class chunk.";
-        return classChunk;
+        final int majorIndex = de.hpi.swa.trufflesqueak.image.SqueakImageConstants.majorClassIndexOf(classIndex);
+        final int minorIndex = de.hpi.swa.trufflesqueak.image.SqueakImageConstants.minorClassIndexOf(classIndex);
+        final long pagePtr = reader.hiddenRootsChunk.getWord(majorIndex);
+        if (pagePtr == reader.nilPointer || pagePtr == reader.baseAddress) {
+            return null;
+        }
+        final SqueakImageChunk classTablePage = reader.chunkMap.get(pagePtr);
+        if (classTablePage == null || classTablePage.isNil()) {
+            return null; /* Class page does not exist (Pharo sparse class table). */
+        }
+        if (classTablePage.getBytes() == null || classTablePage.getBytes().length == 0) {
+            return null; /* Empty class table page. */
+        }
+        final long classPtr = classTablePage.getWord(minorIndex);
+        if (classPtr == reader.nilPointer || classPtr == reader.baseAddress) {
+             return null;
+        }
+        return reader.chunkMap.get(classPtr);
     }
 
     public void setSqueakClass(final ClassObject baseSqueakObject) {
@@ -205,6 +226,9 @@ public final class SqueakImageChunk {
     }
 
     private Object decodePointer(final long ptr) {
+        if (ptr == reader.nilPointer || ptr == reader.baseAddress) {
+            return NilObject.SINGLETON;
+        }
         switch ((int) (ptr & 7)) {
             case SqueakImageConstants.OBJECT_TAG:
                 final SqueakImageChunk chunk = reader.chunkMap.get(ptr);
@@ -243,6 +267,10 @@ public final class SqueakImageChunk {
 
     public long getWord(final int index) {
         return VarHandleUtils.getLong(bytes, index);
+    }
+
+    public void setWord(final int index, final long value) {
+        VarHandleUtils.putLong(bytes, index, value);
     }
 
     public int getWordSize() {

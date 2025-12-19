@@ -124,9 +124,12 @@ public abstract class AbstractSqueakObjectWithClassAndHash extends AbstractSquea
 
     @Override
     public void pointersBecomeOneWay(final UnmodifiableEconomicMap<Object, Object> fromToMap) {
-        final Object replacement = fromToMap.get(getSqueakClass());
-        if (replacement != null) {
-            setSqueakClass((ClassObject) replacement);
+        super.pointersBecomeOneWay(fromToMap);
+        if (isNotForwarded() && squeakClass != null) {
+            final Object replacement = fromToMap.get(squeakClass);
+            if (replacement != null) {
+                setSqueakClass((ClassObject) replacement);
+            }
         }
     }
 }

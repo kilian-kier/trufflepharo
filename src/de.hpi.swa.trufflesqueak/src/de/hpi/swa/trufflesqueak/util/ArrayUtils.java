@@ -191,9 +191,12 @@ public final class ArrayUtils {
 
     public static void replaceAll(final Object[] array, final UnmodifiableEconomicMap<Object, Object> objectsToReplacements) {
         for (int i = 0; i < array.length; i++) {
-            final Object replacement = objectsToReplacements.get(array[i]);
-            if (replacement != null) {
-                array[i] = replacement;
+            final Object element = array[i];
+            if (element != null) {
+                final Object replacement = objectsToReplacements.get(element);
+                if (replacement != null) {
+                    array[i] = replacement;
+                }
             }
         }
     }

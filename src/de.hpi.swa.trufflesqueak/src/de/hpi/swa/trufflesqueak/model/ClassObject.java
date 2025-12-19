@@ -29,6 +29,7 @@ import de.hpi.swa.trufflesqueak.model.layout.ObjectLayouts.METACLASS;
 import de.hpi.swa.trufflesqueak.model.layout.ObjectLayouts.METHOD_DICT;
 import de.hpi.swa.trufflesqueak.nodes.accessing.AbstractPointersObjectNodes.AbstractPointersObjectReadNode;
 import de.hpi.swa.trufflesqueak.util.ArrayUtils;
+import de.hpi.swa.trufflesqueak.util.LogUtils;
 import de.hpi.swa.trufflesqueak.util.ObjectGraphUtils.ObjectTracer;
 
 /*
@@ -127,11 +128,11 @@ public final class ClassObject extends AbstractSqueakObjectWithClassAndHash {
             } else {
                 return "Unknown classTrait";
             }
-        } else if (size() >= CLASS.NAME && pointers[CLASS.NAME] instanceof final NativeObject className) {
+        } else if (pointers != null && size() >= CLASS.NAME && pointers[CLASS.NAME] instanceof final NativeObject className) {
             // this also works for traits, since TRAIT.NAME == CLASS.NAME
             return className.asStringUnsafe();
         } else {
-            return "Unknown behavior";
+            return "Unknown behavior (uninitialized?)";
         }
     }
 
@@ -240,6 +241,10 @@ public final class ClassObject extends AbstractSqueakObjectWithClassAndHash {
             if (needsSqueakHash() && chunk.getHash() != 0) {
                 setSqueakHash(chunk.getHash());
             }
+            if (chunk.getWordSize() < CLASS_DESCRIPTION.SIZE) {
+                LogUtils.READER.warning("Truncated ClassObject chunk found (size " + chunk.getWordSize() + "). Skipping fillin.");
+                return;
+            }
             superclass = (ClassObject) NilObject.nilToNull(chunk.getPointer(CLASS_DESCRIPTION.SUPERCLASS));
             methodDict = (VariablePointersObject) chunk.getPointer(CLASS_DESCRIPTION.METHOD_DICT);
             format = (long) chunk.getPointer(CLASS_DESCRIPTION.FORMAT);
@@ -279,7 +284,7 @@ public final class ClassObject extends AbstractSqueakObjectWithClassAndHash {
 
     @Override
     public int size() {
-        return CLASS_DESCRIPTION.INLINE_POINTERS + pointers.length;
+        return CLASS_DESCRIPTION.INLINE_POINTERS + (pointers == null ? 0 : pointers.length);
     }
 
     public static boolean isSuperclassIndex(final long index) {
@@ -569,5 +574,9 @@ public final class ClassObject extends AbstractSqueakObjectWithClassAndHash {
         writer.writeObject(getMethodDict());
         writer.writeSmallInteger(format);
         writer.writeObjects(getOtherPointers());
+    }
+
+    public boolean isDummy() {
+        return format == -1;
     }
 }

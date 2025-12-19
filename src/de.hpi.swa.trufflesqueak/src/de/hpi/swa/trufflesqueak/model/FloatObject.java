@@ -66,7 +66,7 @@ public final class FloatObject extends AbstractSqueakObjectWithHash {
 
     @Override
     public void pointersBecomeOneWay(final UnmodifiableEconomicMap<Object, Object> fromToMap) {
-        // Nothing to do
+        super.pointersBecomeOneWay(fromToMap);
     }
 
     public static FloatObject valueOf(final double value) {

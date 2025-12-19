@@ -6,6 +6,8 @@
  */
 package de.hpi.swa.trufflesqueak.model;
 
+import org.graalvm.collections.UnmodifiableEconomicMap;
+
 import de.hpi.swa.trufflesqueak.exceptions.SqueakExceptions.SqueakException;
 import de.hpi.swa.trufflesqueak.image.SqueakImageChunk;
 import de.hpi.swa.trufflesqueak.image.SqueakImageWriter;
@@ -41,6 +43,11 @@ public final class EmptyObject extends AbstractSqueakObjectWithClassAndHash {
 
     public void become(final EmptyObject other) {
         becomeOtherClass(other);
+    }
+
+    @Override
+    public void pointersBecomeOneWay(final UnmodifiableEconomicMap<Object, Object> fromToMap) {
+        super.pointersBecomeOneWay(fromToMap);
     }
 
     @Override
