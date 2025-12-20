@@ -162,6 +162,7 @@ public final class SqueakImageContext {
     @CompilationFinal(dimensions = 1) private byte[] resourcesDirectoryBytes;
     @CompilationFinal(dimensions = 1) private byte[] resourcesPathBytes;
     private final boolean isHeadless;
+    private boolean isPharo;
     public final SqueakContextOptions options;
     private final SqueakSystemAttributes systemAttributes = new SqueakSystemAttributes(this);
 
@@ -898,6 +899,14 @@ public final class SqueakImageContext {
 
     public boolean interruptHandlerDisabled() {
         return options.disableInterruptHandler();
+    }
+
+    public boolean isPharo() {
+        return isPharo;
+    }
+
+    public void setPharo(final boolean value) {
+        isPharo = value;
     }
 
     public void attachDisplayIfNecessary() {

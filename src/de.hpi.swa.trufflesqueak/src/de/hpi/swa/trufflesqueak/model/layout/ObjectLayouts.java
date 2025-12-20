@@ -36,6 +36,14 @@ public final class ObjectLayouts {
         public static final int FULL_FIRST_COPIED_VALUE = 4;
     }
 
+    public static final class PHARO_BLOCK_CLOSURE {
+        public static final int RECEIVER = 0;
+        public static final int OUTER_CONTEXT = 1;
+        public static final int METHOD = 2;
+        public static final int ARGUMENT_COUNT = 3;
+        public static final int FIRST_COPIED_VALUE = 4;
+    }
+
     public static final class CHARACTER_SCANNER {
         public static final int DEST_X = 0;
         public static final int LAST_INDEX = 1;
@@ -197,7 +205,7 @@ public final class ObjectLayouts {
         public static final int SUSPENDED_CONTEXT = 1;
         public static final int PRIORITY = 2;
         public static final int LIST = 3;
-        public static final int EFFECTIVE_PROCESS = 5;
+        public static final int EFFECTIVE_PROCESS = 6;
     }
 
     public static final class PROCESS_SCHEDULER {
