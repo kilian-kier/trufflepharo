@@ -41,9 +41,10 @@ public final class SqueakImageReader {
 
     public final AddressToChunkMap chunkMap = new AddressToChunkMap();
     public final SqueakImageContext image;
-
+    long baseAddress;
     private int headerSize;
     private long specialObjectsPointer;
+    long nilPointer;
 
     private SqueakImageChunk freePageList;
 
@@ -63,6 +64,7 @@ public final class SqueakImageReader {
 
     private void run() {
         SqueakImageContext.initializeBeforeLoadingImage();
+        image.setPharo(image.getImagePath().contains("Pharo"));
         final long start = MiscUtils.currentTimeMillis();
         final TruffleFile truffleFile = image.env.getPublicTruffleFile(image.getImagePath());
         if (!truffleFile.isRegularFile()) {
@@ -76,6 +78,12 @@ public final class SqueakImageReader {
         } catch (final IOException e) {
             throw SqueakException.create("Failed to read Smalltalk image:", e.getMessage());
         }
+
+        if (chunkMap.size() == 0) {
+            LogUtils.IMAGE.warning("Empty chunk map after readImage");
+            return;
+        }
+
         initObjects();
         LogUtils.IMAGE.fine(() -> "Image loaded in " + (MiscUtils.currentTimeMillis() - start) + "ms.");
         image.setHiddenRoots((ArrayObject) hiddenRootsChunk.asObject());
@@ -97,7 +105,7 @@ public final class SqueakImageReader {
         // Base header start
         headerSize = buffer.getInt();
         final long dataSize = buffer.getLong();
-        final long oldBaseAddress = buffer.getLong();
+        baseAddress = buffer.getLong();
         specialObjectsPointer = buffer.getLong();
         // 1 word last used hash
         buffer.getLong();
@@ -122,27 +130,30 @@ public final class SqueakImageReader {
         // freeOldSpace
         buffer.getLong();
 
-        image.flags.initialize(oldBaseAddress, headerFlags, snapshotScreenSize, maxExternalSemaphoreTableSize);
+        image.flags.initialize(baseAddress, headerFlags, snapshotScreenSize, maxExternalSemaphoreTableSize);
 
         skip(buffer, headerSize - buffer.position());
         assert buffer.position() == headerSize;
 
         // Read body
         long segmentEnd = headerSize + firstSegmentSize;
-        long currentAddressSwizzle = oldBaseAddress;
+        long currentAddressSwizzle = baseAddress;
         while (buffer.position() < segmentEnd) {
             while (buffer.position() < segmentEnd - SqueakImageConstants.IMAGE_BRIDGE_SIZE) {
                 final SqueakImageChunk chunk = readObject(buffer);
-                chunkMap.put(chunk.getPosition() + currentAddressSwizzle, chunk);
+                final long key = chunk.getPosition() + currentAddressSwizzle;
+                chunkMap.put(key, chunk);
             }
-            assert hiddenRootsChunk != null : "hiddenRootsChunk must be known from now on.";
             final long bridge = buffer.getLong();
-            long bridgeSpan = 0;
-            if ((bridge & SqueakImageConstants.SLOTS_MASK) != 0) {
-                bridgeSpan = bridge & ~SqueakImageConstants.SLOTS_MASK;
-            }
             final long nextSegmentSize = buffer.getLong();
-            assert bridgeSpan >= 0 && nextSegmentSize >= 0 && buffer.position() == segmentEnd;
+            long bridgeSpan = 0;
+            final int numSlots = SqueakImageConstants.ObjectHeader.getNumSlots(bridge);
+            if (numSlots != 0) {
+                bridgeSpan = numSlots;
+                if (numSlots == SqueakImageConstants.OVERFLOW_SLOTS) {
+                    bridgeSpan = bridge & ~SqueakImageConstants.SLOTS_MASK;
+                }
+            }
             if (nextSegmentSize == 0) {
                 break;
             }
@@ -183,7 +194,7 @@ public final class SqueakImageReader {
                 freePageList = chunk; /* First hidden object. */
             } else {
                 assert classIndex == SqueakImageConstants.ARRAY_CLASS_INDEX_PUN &&
-                                size == SqueakImageConstants.CLASS_TABLE_ROOT_SLOTS + SqueakImageConstants.HIDDEN_ROOT_SLOTS : "hiddenRootsObj has unexpected size";
+                                size >= SqueakImageConstants.CLASS_TABLE_ROOT_SLOTS + SqueakImageConstants.HIDDEN_ROOT_SLOTS : "hiddenRootsObj has unexpected size: " + size;
                 hiddenRootsChunk = chunk; /* Second hidden object. */
             }
         }
@@ -205,7 +216,20 @@ public final class SqueakImageReader {
     }
 
     private static boolean ignoreObjectData(final long headerWord, final int classIndex, final int size) {
-        return isFreeObject(classIndex) || isObjectStack(classIndex, size) || isHiddenObject(classIndex) && SqueakImageConstants.ObjectHeader.isPinned(headerWord);
+        if (isFreeObject(classIndex) || isObjectStack(classIndex, size)) {
+            return true;
+        }
+        if (isHiddenObject(classIndex) && SqueakImageConstants.ObjectHeader.isPinned(headerWord)) {
+            /*
+             * Don't skip ARRAY_CLASS_INDEX_PUN hidden objects - these include class table pages
+             * whose data is needed to traverse the class table during image loading (Pharo compat).
+             */
+            if (classIndex == SqueakImageConstants.ARRAY_CLASS_INDEX_PUN) {
+                return false;
+            }
+            return true;
+        }
+        return false;
     }
 
     protected static boolean isHiddenObject(final int classIndex) {
@@ -224,6 +248,11 @@ public final class SqueakImageReader {
         return chunkMap.get(specialObjectsChunk.getWord(idx));
     }
 
+    private boolean isValidSpecialObjectChunk(final SqueakImageChunk specialObjectsChunk, final int idx) {
+        final SqueakImageChunk chunk = specialObjectChunk(specialObjectsChunk, idx);
+        return chunk != null && !chunk.isNil() && chunk.getWordSize() > 0;
+    }
+
     private void initializeClass(final SqueakImageChunk specialChunk, final int index, final ClassObject targetClass) {
         final SqueakImageChunk chunk = specialObjectChunk(specialChunk, index).getClassChunk();
         chunk.setObject(targetClass);
@@ -232,21 +261,43 @@ public final class SqueakImageReader {
 
     private void setPrebuiltObject(final SqueakImageChunk specialObjectsChunk, final int idx, final NativeObject object) {
         final SqueakImageChunk chunk = specialObjectChunk(specialObjectsChunk, idx);
+        if (chunk == null || chunk.isNil()) {
+            return;
+        }
+        if (chunk.getObject() != null) {
+            return;
+        }
         object.initializeFrom(chunk);
         assert 15 < chunk.getFormat() && chunk.getFormat() <= 23 : "non-byte NativeObject in special objects array";
         object.setStorage(chunk.getBytes());
     }
 
     private void setPrebuiltObject(final SqueakImageChunk specialObjectsChunk, final int idx, final AbstractSqueakObjectWithClassAndHash object) {
-        object.initializeFrom(specialObjectChunk(specialObjectsChunk, idx));
+        final SqueakImageChunk chunk = specialObjectChunk(specialObjectsChunk, idx);
+        if (chunk == null || chunk.isNil()) {
+            return;
+        }
+        if (chunk.getObject() != null) {
+            return;
+        }
+        object.initializeFrom(chunk);
     }
 
     private void setPrebuiltObject(final SqueakImageChunk specialObjectsChunk, final int idx, final Object object) {
-        specialObjectChunk(specialObjectsChunk, idx).setObject(object);
+        final SqueakImageChunk chunk = specialObjectChunk(specialObjectsChunk, idx);
+        if (chunk == null) {
+            return;
+        }
+        if (chunk.getObject() == null || chunk.getObject() == object) {
+            chunk.setObject(object);
+        }
     }
 
-    private void initPrebuiltConstant() {
+    private void initPrebuiltMetaClass() {
         final SqueakImageChunk specialChunk = chunkMap.get(specialObjectsPointer);
+        if (specialChunk == null) {
+            throw SqueakException.create("specialObjectsArray chunk not found in map! pointer: 0x" + Long.toHexString(specialObjectsPointer) + ", map size: " + chunkMap.size());
+        }
         specialChunk.setObject(image.specialObjectsArray);
 
         // first we find the Metaclass, we need it to correctly instantiate
@@ -258,119 +309,230 @@ public final class SqueakImageReader {
         final SqueakImageChunk sqMetaclass = sqArrayClass.getClassChunk();
         sqMetaclass.setObject(image.metaClass);
         image.metaClass.setSqueakClass(sqMetaclass.getSqueakClass());
+    }
+
+    private void initPrebuiltConstant() {
+        final SqueakImageChunk specialChunk = chunkMap.get(specialObjectsPointer);
+        if (specialChunk == null) {
+            LogUtils.IMAGE.warning(() -> "specialObjectsArray chunk not found at 0x" + Long.toHexString(specialObjectsPointer));
+            return;
+        }
+
+        /*
+         * Pin core singletons early to prevent accidental promotion if indices point to these chunks
+         * (e.g. index 31 in Pharo 13 points to nil).
+         */
+        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.NIL_OBJECT, NilObject.SINGLETON);
+        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.FALSE_OBJECT, BooleanObject.FALSE);
+        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.TRUE_OBJECT, BooleanObject.TRUE);
 
         // also cache nil, true, and false classes
         initializeClass(specialChunk, SPECIAL_OBJECT.NIL_OBJECT, image.nilClass);
         initializeClass(specialChunk, SPECIAL_OBJECT.FALSE_OBJECT, image.falseClass);
         initializeClass(specialChunk, SPECIAL_OBJECT.TRUE_OBJECT, image.trueClass);
 
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.NIL_OBJECT, NilObject.SINGLETON);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.FALSE_OBJECT, BooleanObject.FALSE);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.TRUE_OBJECT, BooleanObject.TRUE);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SCHEDULER_ASSOCIATION, image.schedulerAssociation);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_BITMAP, image.bitmapClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_SMALL_INTEGER, image.smallIntegerClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_STRING, image.byteStringClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_ARRAY, image.arrayClass);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SMALLTALK_DICTIONARY, image.smalltalk);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_FLOAT, image.floatClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_METHOD_CONTEXT, image.methodContextClass);
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_WIDE_STRING).isNil()) {
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_WIDE_STRING)) {
             setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_WIDE_STRING, image.initializeWideStringClass());
         }
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_POINT, image.pointClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_LARGE_POSITIVE_INTEGER, image.largePositiveIntegerClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_MESSAGE, image.messageClass);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_COMPILED_METHOD, image.compiledMethodClass);
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_COMPILED_METHOD)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_COMPILED_METHOD, image.compiledMethodClass);
+        }
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_SEMAPHORE, image.semaphoreClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_CHARACTER, image.characterClass);
+
+        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_BYTE_ARRAY, image.byteArrayClass);
+        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_PROCESS, image.processClass);
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_BYTE_ARRAY)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_BYTE_ARRAY, image.initializeDoubleByteArrayClass());
+        }
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_WORD_ARRAY)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_WORD_ARRAY, image.initializeWordArrayClass());
+        }
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_WORD_ARRAY)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_WORD_ARRAY, image.initializeDoubleWordArrayClass());
+        }
+
+        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_BLOCK_CLOSURE, image.blockClosureClass);
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_FULL_BLOCK_CLOSURE)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_FULL_BLOCK_CLOSURE, image.initializeFullBlockClosureClass());
+        }
+        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_LARGE_NEGATIVE_INTEGER, image.largeNegativeIntegerClass);
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_ADDRESS)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_ADDRESS, image.initializeExternalAddressClass());
+        }
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_STRUCTURE)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_STRUCTURE, image.initializeExternalStructureClass());
+        }
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_DATA)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_DATA, image.initializeExternalDataClass());
+        }
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_FUNCTION)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_FUNCTION, image.initializeExternalFunctionClass());
+        }
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_LIBRARY)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_LIBRARY, image.initializeExternalLibraryClass());
+        }
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_ALIEN)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_ALIEN, image.initializeAlienClass());
+        }
+        if (isValidSpecialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_UNSAFE_ALIEN)) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_UNSAFE_ALIEN, image.initializeUnsafeAlienClass());
+        }
+
+        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SCHEDULER_ASSOCIATION, image.schedulerAssociation);
+
+        // Smalltalk dictionary is deferred until after fillInClassObjects
+
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SELECTOR_DOES_NOT_UNDERSTAND, image.doesNotUnderstand);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SELECTOR_CANNOT_RETURN, image.cannotReturn);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SPECIAL_SELECTORS, image.specialSelectors);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SELECTOR_MUST_BE_BOOLEAN, image.mustBeBooleanSelector);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_BYTE_ARRAY, image.byteArrayClass);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_PROCESS, image.processClass);
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_BYTE_ARRAY).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_BYTE_ARRAY, image.initializeDoubleByteArrayClass());
-        }
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_WORD_ARRAY).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_WORD_ARRAY, image.initializeWordArrayClass());
-        }
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_WORD_ARRAY).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_WORD_ARRAY, image.initializeDoubleWordArrayClass());
-        }
+
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SELECTOR_CANNOT_INTERPRET, image.cannotInterpretSelector);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_BLOCK_CLOSURE, image.blockClosureClass);
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_FULL_BLOCK_CLOSURE).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_FULL_BLOCK_CLOSURE, image.initializeFullBlockClosureClass());
-        }
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_LARGE_NEGATIVE_INTEGER, image.largeNegativeIntegerClass);
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_ADDRESS).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_ADDRESS, image.initializeExternalAddressClass());
-        }
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_STRUCTURE).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_STRUCTURE, image.initializeExternalStructureClass());
-        }
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_DATA).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_DATA, image.initializeExternalDataClass());
-        }
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_FUNCTION).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_FUNCTION, image.initializeExternalFunctionClass());
-        }
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_LIBRARY).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_EXTERNAL_LIBRARY, image.initializeExternalLibraryClass());
-        }
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SELECTOR_ABOUT_TO_RETURN, image.aboutToReturnSelector);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SELECTOR_RUN_WITHIN, image.runWithInSelector);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.PRIM_ERR_TABLE_INDEX, image.primitiveErrorTable);
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_ALIEN).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_ALIEN, image.initializeAlienClass());
-        }
-        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_UNSAFE_ALIEN).isNil()) {
-            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_UNSAFE_ALIEN, image.initializeUnsafeAlienClass());
-        }
 
         image.specialObjectsArray.setSqueakClass(specialChunk.getSqueakClass());
         image.specialObjectsArray.fillin(specialChunk);
-        image.specialSelectors.fillin(specialChunk.getChunk(SPECIAL_OBJECT.SPECIAL_SELECTORS));
+        // Selector forcing for Pharo 13 moved to after fillInClassObjects
+        final SqueakImageChunk specialSelectorsChunk = specialChunk.getChunk(SPECIAL_OBJECT.SPECIAL_SELECTORS);
+        image.specialSelectors.fillin(specialSelectorsChunk);
+    }
+
+    private void ensureSpecialSelectors(final ArrayObject selectors) {
+        final String[] standardSelectors = {
+            "+", "-", "<", ">", "<=", ">=", "=", "~=",
+            "*", "/", "\\", "@", "bitShift:", "//", "bitAnd:", "bitOr:",
+            "at:", "at:put:", "size", "next", "nextPut:", "atEnd",
+            "==", "class", "~~", "value", "value:", "do:",
+            "new", "new:", "x", "y"
+        };
+        final int[] standardArities = {
+            1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1,
+            1, 2, 0, 0, 1, 0,
+            1, 0, 1, 0, 1, 1,
+            0, 1, 0, 0
+        };
+        final Object[] storage = selectors.getObjectStorage();
+        final ClassObject byteSymbolClass = image.getByteSymbolClass();
+        if (byteSymbolClass == null) {
+             // If we don't have the class yet, we can't reliably inject them here.
+             // They will likely be filled in by the image anyway, or discovered later.
+             return;
+        }
+        for (int i = 0; i < standardSelectors.length; i++) {
+            if (storage[i * 2] == NilObject.SINGLETON || storage[i * 2] == null) {
+                final NativeObject selector = NativeObject.newNativeBytes(byteSymbolClass, MiscUtils.stringToBytes(standardSelectors[i]));
+                // Set a hash so that method cache logic doesn't crash
+                selector.setSqueakHash(standardSelectors[i].hashCode() & 0x3fffff);
+                storage[i * 2] = selector;
+                storage[i * 2 + 1] = (long) standardArities[i];
+            }
+        }
+    }
+
+    private void forceSelector(final NativeObject selector, final String name) {
+        selector.setSqueakClass(image.byteSymbolClass);
+        selector.setStorage(MiscUtils.stringToBytes(name));
+        if (selector.getSqueakHash() == -1) {
+            selector.setSqueakHash(name.hashCode() & 0x3fffff);
+        }
+    }
+
+    private void initSmalltalk() {
+        final SqueakImageChunk specialChunkReal = chunkMap.get(specialObjectsPointer);
+        setPrebuiltObject(specialChunkReal, SPECIAL_OBJECT.SMALLTALK_DICTIONARY, image.smalltalk);
     }
 
     private void initObjects() {
+        if (hiddenRootsChunk != null && hiddenRootsChunk.getWordSize() > 0) {
+            final long specialObjectsArrayOop = hiddenRootsChunk.getWord(0);
+            final SqueakImageChunk specialObjectsArrayChunk = chunkMap.get(specialObjectsArrayOop);
+            if (specialObjectsArrayChunk != null && specialObjectsArrayChunk.getWordSize() > 0) {
+                nilPointer = specialObjectsArrayChunk.getWord(0);
+            }
+        }
+        if (nilPointer == 0) {
+            nilPointer = baseAddress; // Fallback
+        }
+        initPrebuiltMetaClass();
         initPrebuiltConstant();
         fillInClassObjects();
+        if (image.isPharo()) {
+            forceSelector(image.cannotReturn, "cannotReturn:");
+            forceSelector(image.mustBeBooleanSelector, "mustBeBoolean");
+            forceSelector(image.doesNotUnderstand, "doesNotUnderstand:");
+            ensureSpecialSelectors(image.specialSelectors);
+            if (image.specialObjectsArray.getObject(SPECIAL_OBJECT.SELECTOR_CANNOT_RETURN) == NilObject.SINGLETON) {
+                image.specialObjectsArray.setObject(SPECIAL_OBJECT.SELECTOR_CANNOT_RETURN, image.cannotReturn);
+            }
+            if (image.specialObjectsArray.getObject(SPECIAL_OBJECT.SELECTOR_MUST_BE_BOOLEAN) == NilObject.SINGLETON) {
+                image.specialObjectsArray.setObject(SPECIAL_OBJECT.SELECTOR_MUST_BE_BOOLEAN, image.mustBeBooleanSelector);
+            }
+            if (image.specialObjectsArray.getObject(SPECIAL_OBJECT.SELECTOR_DOES_NOT_UNDERSTAND) == NilObject.SINGLETON) {
+                image.specialObjectsArray.setObject(SPECIAL_OBJECT.SELECTOR_DOES_NOT_UNDERSTAND, image.doesNotUnderstand);
+            }
+        }
+        initSmalltalk();
         fillInObjects();
         fillInClassesFromCompactClassList();
     }
 
     /**
      * Fill in classes and ensure instances of Behavior and its subclasses use {@link ClassObject}.
+     * Uses a multi-pass approach for robustness with both Squeak and Pharo images.
      */
     private void fillInClassObjects() {
         /* Find all metaclasses and instantiate their singleton instances as class objects. */
         int highestKnownClassIndex = -1;
-        for (int p = 0; p < SqueakImageConstants.CLASS_TABLE_ROOT_SLOTS; p++) {
-            final SqueakImageChunk classTablePage = chunkMap.get(hiddenRootsChunk.getWord(p));
-            if (classTablePage.isNil()) {
-                break; /* End of classTable reached (pages are consecutive). */
-            }
-            for (int i = 0; i < SqueakImageConstants.CLASS_TABLE_PAGE_SIZE; i++) {
-                final long potentialClassPtr = classTablePage.getWord(i);
-                assert potentialClassPtr != 0;
-                final SqueakImageChunk classChunk = chunkMap.get(potentialClassPtr);
-                if (classChunk.getSqueakClass() == image.metaClass) {
+        if (hiddenRootsChunk.getBytes() == null) {
+            throw SqueakException.create("hiddenRootsChunk has null bytes. header=" + hiddenRootsChunk.getHeader());
+        }
+        for (int pass = 0; pass < 3; pass++) {
+            for (int p = 0; p < SqueakImageConstants.CLASS_TABLE_ROOT_SLOTS; p++) {
+                final SqueakImageChunk classTablePage = chunkMap.get(hiddenRootsChunk.getWord(p));
+                if (classTablePage == null || classTablePage.isNil()) {
+                    break; /* End of classTable reached (pages are consecutive). */
+                }
+                if (classTablePage.getBytes() == null || classTablePage.getBytes().length == 0) {
+                    continue; /* Skip zero-length pages (Pharo class table placeholders). */
+                }
+                for (int i = 0; i < SqueakImageConstants.CLASS_TABLE_PAGE_SIZE; i++) {
+                    final long potentialClassPtr = classTablePage.getWord(i);
+                    assert potentialClassPtr != 0;
+                    final SqueakImageChunk classChunk = chunkMap.get(potentialClassPtr);
+                    if (classChunk == null || classChunk.getFormat() != 1) {
+                        continue;
+                    }
+                    final ClassObject classObject = classChunk.asClassObject();
+                    if (classObject == null) {
+                        continue;
+                    }
                     /* Derive classIndex from current position in class table. */
                     highestKnownClassIndex = p << SqueakImageConstants.CLASS_TABLE_MAJOR_INDEX_SHIFT | i;
-                    assert classChunk.getWordSize() == METACLASS.INST_SIZE;
-                    final SqueakImageChunk classInstance = chunkMap.get(classChunk.getWord(METACLASS.THIS_CLASS));
-                    final ClassObject metaClassObject = classChunk.asClassObject();
-                    assert metaClassObject != null;
-                    metaClassObject.setInstancesAreClasses();
-                    classInstance.asClassObject();
+                    if (classChunk.getWordSize() >= METACLASS.INST_SIZE) {
+                        final long thisClassPtr = classChunk.getWord(METACLASS.THIS_CLASS);
+                        final SqueakImageChunk classInstance = chunkMap.get(thisClassPtr);
+                        if (classInstance != null && classInstance.getFormat() == 1) {
+                            classObject.setInstancesAreClasses();
+                            classInstance.asClassObject();
+                        }
+                    }
                 }
             }
         }
         assert highestKnownClassIndex > 0 : "Failed to find highestKnownClassIndex";
-        // ToDo: why is this set here? setHiddenRoots() initializes it properly
         image.classTableIndex = highestKnownClassIndex;
 
         /* Fill in metaClass. */
@@ -381,8 +543,8 @@ public final class SqueakImageReader {
         image.metaClass.fillin(sqMetaclass);
 
         /*
-         * Walk over all classes again and ensure instances of all subclasses of ClassDescriptions
-         * are {@link ClassObject}s.
+         * Walk over all classes again, fill them in, and ensure instances of all subclasses of
+         * ClassDescriptions are {@link ClassObject}s.
          */
         final HashSet<ClassObject> inst = new HashSet<>();
         final ClassObject classDescriptionClass = image.metaClass.getSuperclassOrNull();
@@ -391,19 +553,65 @@ public final class SqueakImageReader {
 
         for (int p = 0; p < SqueakImageConstants.CLASS_TABLE_ROOT_SLOTS; p++) {
             final SqueakImageChunk classTablePage = chunkMap.get(hiddenRootsChunk.getWord(p));
-            if (classTablePage.isNil()) {
+            if (classTablePage == null || classTablePage.isNil()) {
                 break; /* End of classTable reached (pages are consecutive). */
+            }
+            if (classTablePage.getBytes() == null || classTablePage.getBytes().length == 0) {
+                continue; /* Skip zero-length pages. */
             }
             for (int i = 0; i < SqueakImageConstants.CLASS_TABLE_PAGE_SIZE; i++) {
                 final long potentialClassPtr = classTablePage.getWord(i);
-                assert potentialClassPtr != 0;
+                if (potentialClassPtr == 0) continue; // Pharo 13 might have zero entries in pages
                 final SqueakImageChunk classChunk = chunkMap.get(potentialClassPtr);
-                if (classChunk.getSqueakClass() == image.metaClass) {
-                    assert classChunk.getWordSize() == METACLASS.INST_SIZE;
-                    final SqueakImageChunk classInstance = chunkMap.get(classChunk.getWord(METACLASS.THIS_CLASS));
-                    final ClassObject classObject = classInstance.asClassObject();
-                    assert classObject != null;
-                    classObject.fillin(classInstance);
+                if (classChunk == null || classChunk.getFormat() != 1) {
+                    continue;
+                }
+                final ClassObject classObject = classChunk.asClassObject();
+                if (classObject == null) {
+                    continue;
+                }
+                if (classChunk.getWordSize() >= METACLASS.INST_SIZE) {
+                    final long thisClassPtr = classChunk.getWord(METACLASS.THIS_CLASS);
+                    final SqueakImageChunk classInstance = chunkMap.get(thisClassPtr);
+                    if (classInstance != null && classInstance.getFormat() == 1) {
+                        final ClassObject instanceClassObject = classInstance.asClassObject();
+                        classObject.fillin(classChunk);
+                        if (instanceClassObject != null) {
+                            instanceClassObject.fillin(classInstance);
+                            /* Discover Pharo-specific closure and core classes by name. */
+                            final String name = instanceClassObject.getClassName();
+                            if ("FullBlockClosure".equals(name)) {
+                                if (image.getFullBlockClosureClass() == null) {
+                                    image.setFullBlockClosureClass(instanceClassObject);
+                                }
+                            } else if ("BlockClosure".equals(name)) {
+                                if (image.blockClosureClass == null || image.blockClosureClass.isDummy()) {
+                                    image.blockClosureClass = instanceClassObject;
+                                }
+                            } else if ("CompiledMethod".equals(name)) {
+                                image.compiledMethodClass = instanceClassObject;
+                            } else if ("Process".equals(name)) {
+                                if (image.processClass == null || image.processClass.isDummy()) {
+                                    image.processClass = instanceClassObject;
+                                }
+                            } else if ("Context".equals(name) || "MethodContext".equals(name)) {
+                                if (image.methodContextClass == null || image.methodContextClass.isDummy()) {
+                                    image.methodContextClass = instanceClassObject;
+                                }
+                            } else if ("ByteSymbol".equals(name)) {
+                                if (image.byteSymbolClass == null || image.byteSymbolClass.isDummy()) {
+                                    image.byteSymbolClass = instanceClassObject;
+                                }
+                            }
+                            classObject.setOtherPointer(METACLASS.THIS_CLASS, instanceClassObject);
+                            if (inst.contains(instanceClassObject.getSuperclassOrNull())) {
+                                inst.add(instanceClassObject);
+                                instanceClassObject.setInstancesAreClasses();
+                            }
+                        }
+                    }
+                } else {
+                    classObject.fillin(classChunk);
                     if (inst.contains(classObject.getSuperclassOrNull())) {
                         inst.add(classObject);
                         classObject.setInstancesAreClasses();
@@ -412,11 +620,52 @@ public final class SqueakImageReader {
             }
         }
         assert image.metaClass.instancesAreClasses();
-        image.setByteSymbolClass(((NativeObject) image.metaClass.getOtherPointers()[CLASS.NAME]).getSqueakClass());
+        if (image.byteSymbolClass == null || image.byteSymbolClass.isDummy()) {
+            final Object[] metaClassPointers = image.metaClass.getOtherPointers();
+            if (metaClassPointers.length > CLASS.NAME && metaClassPointers[CLASS.NAME] instanceof final NativeObject nameSymbol) {
+                image.setByteSymbolClass(nameSymbol.getSqueakClass());
+            }
+        }
 
         /* Finally, ensure instances of Behavior are {@link ClassObject}s. */
         final ClassObject behaviorClass = classDescriptionClass.getSuperclassOrNull();
         behaviorClass.setInstancesAreClasses();
+
+        /* Ensure any class-like chunk is upgraded to ClassObject before objects are filled in. */
+        forceUpgradeClassLikeChunks(behaviorClass);
+    }
+
+    private boolean isSubclassOf(final ClassObject klass, final ClassObject superclass) {
+        ClassObject current = klass;
+        while (current != null) {
+            if (current == superclass) {
+                return true;
+            }
+            current = current.getSuperclassOrNull();
+        }
+        return false;
+    }
+
+    private void forceUpgradeClassLikeChunks(final ClassObject behaviorClass) {
+        for (final SqueakImageChunk chunk : chunkMap.getChunks()) {
+            if (chunk == null || chunk.getObject() != null) {
+                continue;
+            }
+            final byte[] bytes = chunk.getBytes();
+            if (bytes == null || bytes.length == 0) {
+                continue;
+            }
+            if (chunk.getFormat() != 1) {
+                continue;
+            }
+            final ClassObject chunkClass = chunk.getSqueakClass();
+            if (chunkClass == null) {
+                continue;
+            }
+            if (isSubclassOf(chunkClass, behaviorClass)) {
+                chunk.asClassObject();
+            }
+        }
     }
 
     private void fillInObjects() {
@@ -431,6 +680,7 @@ public final class SqueakImageReader {
                 obj.fillin(chunk);
             }
         }
+
     }
 
     private void fillInClassesFromCompactClassList() {
@@ -473,11 +723,18 @@ public final class SqueakImageReader {
         private SqueakImageChunk[] chunks = new SqueakImageChunk[capacity];
         private int size;
 
+        public int size() {
+            return size;
+        }
+
         public void put(final long address, final SqueakImageChunk chunk) {
             if (size > threshold) {
                 resize();
             }
             int slot = (int) (address % capacity);
+            if (slot < 0) {
+                slot += capacity;
+            }
             while (true) {
                 if (chunks[slot] == null) {
                     addresses[slot] = address;
@@ -486,16 +743,28 @@ public final class SqueakImageReader {
                     return;
                 }
                 slot = (slot + COLLISION_OFFSET) % capacity;
+                if (slot < 0) {
+                    slot += capacity;
+                }
             }
         }
 
         public SqueakImageChunk get(final long address) {
             int slot = (int) (address % capacity);
+            if (slot < 0) {
+                slot += capacity;
+            }
             while (true) {
                 if (addresses[slot] == address) {
                     return chunks[slot];
                 }
+                if (chunks[slot] == null) {
+                    return null;
+                }
                 slot = (slot + COLLISION_OFFSET) % capacity;
+                if (slot < 0) {
+                    slot += capacity;
+                }
             }
         }
 
