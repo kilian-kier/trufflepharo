@@ -66,8 +66,6 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
     protected final CompiledCodeObject code;
     protected final boolean isBlock;
 
-    @CompilationFinal protected int numArguments;
-
     @CompilationFinal(dimensions = 1) protected final Object[] data;
     @CompilationFinal(dimensions = 1) protected final byte[] profiles;
     @CompilationFinal private Object osrMetadata;
@@ -76,7 +74,6 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
     public AbstractInterpreterNode(final CompiledCodeObject code) {
         this.code = code;
         isBlock = code.isCompiledBlock() || code.isShadowBlock();
-        numArguments = -1;
         final int startPC = code.getStartPCZeroBased();
         final int endPC = code.getMaxPCZeroBased();
         data = new Object[endPC];
@@ -89,7 +86,6 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
         // reusable fields
         code = original.code;
         isBlock = original.isBlock;
-        numArguments = original.numArguments;
         // fresh fields
         final int startPC = code.getStartPCZeroBased();
         final int endPC = code.getMaxPCZeroBased();
@@ -366,62 +362,42 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
      */
 
     protected final void pushFollowed(final VirtualFrame frame, final int currentPC, final int sp, final Object value) {
-        setStackValue(frame, sp, followForwarded(currentPC, value));
+        push(frame, sp, followForwarded(currentPC, value));
     }
 
-    protected final void push(final VirtualFrame frame, final int sp, final Object value) {
-        setStackValue(frame, sp, value);
+    protected static final void push(final VirtualFrame frame, final int sp, final Object value) {
+        FrameAccess.setStackValue(frame, sp, value);
     }
 
-    protected final Object pop(final VirtualFrame frame, final int sp) {
-        assert sp >= numArguments;
-        final int slotIndex = FrameAccess.toStackSlotIndex(sp);
+    protected static final Object pop(final VirtualFrame frame, final int sp) {
+        final int slotIndex = FrameAccess.getStackStart() + sp;
         final Object result = frame.getObjectStatic(slotIndex);
         frame.setObjectStatic(slotIndex, NilObject.SINGLETON);
         return result;
     }
 
-    protected final Object popReceiver(final VirtualFrame frame, final int sp) {
-        return getStackValue(frame, sp);
+    protected static final Object popReceiver(final VirtualFrame frame, final int sp) {
+        return FrameAccess.getStackValue(frame, sp);
     }
 
-    protected final Object[] popN(final VirtualFrame frame, final int sp, final int numPop) {
+    protected static final Object[] popN(final VirtualFrame frame, final int sp, final int numPop) {
         return numPop == 0 ? ArrayUtils.EMPTY_ARRAY : popNExploded(frame, sp, numPop);
     }
 
     @ExplodeLoop
-    private Object[] popNExploded(final VirtualFrame frame, final int sp, final int numPop) {
-        assert sp - numPop >= numArguments;
-        final int topSlotIndex = FrameAccess.toStackSlotIndex(sp - 1);
+    private static Object[] popNExploded(final VirtualFrame frame, final int sp, final int numPop) {
+        final int firstSlotIndex = FrameAccess.getStackStart() + sp - numPop;
         final Object[] stackValues = new Object[numPop];
         for (int i = 0; i < numPop; i++) {
-            final int slotIndex = topSlotIndex - i;
-            stackValues[numPop - 1 - i] = frame.getObjectStatic(slotIndex);
+            final int slotIndex = firstSlotIndex + i;
+            stackValues[i] = frame.getObjectStatic(slotIndex);
             frame.setObjectStatic(slotIndex, NilObject.SINGLETON);
         }
         return stackValues;
     }
 
-    protected final Object top(final VirtualFrame frame, final int sp) {
-        return getStackValue(frame, sp - 1);
-    }
-
-    protected final Object getTemp(final VirtualFrame frame, final int sp) {
-        if (sp < numArguments) {
-            return UnsafeUtils.getObject(frame.getArguments(), FrameAccess.getArgumentStartIndex() + sp);
-        } else {
-            return FrameAccess.getSlotValue(frame, FrameAccess.toStackSlotIndex(sp));
-        }
-    }
-
-    protected final Object getStackValue(final VirtualFrame frame, final int sp) {
-        assert sp >= numArguments;
-        return FrameAccess.getSlotValue(frame, FrameAccess.toStackSlotIndex(sp));
-    }
-
-    protected final void setStackValue(final VirtualFrame frame, final int sp, final Object value) {
-        assert sp >= numArguments;
-        FrameAccess.setSlotValue(frame, FrameAccess.toStackSlotIndex(sp), value);
+    protected static final Object top(final VirtualFrame frame, final int sp) {
+        return FrameAccess.getStackValue(frame, sp - 1);
     }
 
     protected static final void externalizePCAndSP(final VirtualFrame frame, final int pc, final int sp) {

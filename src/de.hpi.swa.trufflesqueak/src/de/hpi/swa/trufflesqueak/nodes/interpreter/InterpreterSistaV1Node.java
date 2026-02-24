@@ -297,11 +297,6 @@ public final class InterpreterSistaV1Node extends AbstractInterpreterNode {
     public Object execute(final VirtualFrame frame, final int startPC, final int startSP) {
         assert isBlock == FrameAccess.hasClosure(frame);
 
-        if (numArguments == -1) {
-            CompilerDirectives.transferToInterpreterAndInvalidate();
-            numArguments = FrameAccess.getNumArguments(frame);
-        }
-
         final SqueakImageContext image = getContext();
         final byte[] bc = uncheckedCast(code.getBytes(), byte[].class);
 
@@ -327,7 +322,6 @@ public final class InterpreterSistaV1Node extends AbstractInterpreterNode {
                     /* 1 byte bytecodes */
                     case BC.PUSH_RCVR_VAR_0, BC.PUSH_RCVR_VAR_1, BC.PUSH_RCVR_VAR_2, BC.PUSH_RCVR_VAR_3, BC.PUSH_RCVR_VAR_4, BC.PUSH_RCVR_VAR_5, BC.PUSH_RCVR_VAR_6, BC.PUSH_RCVR_VAR_7, //
                         BC.PUSH_RCVR_VAR_8, BC.PUSH_RCVR_VAR_9, BC.PUSH_RCVR_VAR_A, BC.PUSH_RCVR_VAR_B, BC.PUSH_RCVR_VAR_C, BC.PUSH_RCVR_VAR_D, BC.PUSH_RCVR_VAR_E, BC.PUSH_RCVR_VAR_F: {
-                        externalizePCAndSP(frame, pc, sp); // for ContextObject access
                         pushFollowed(frame, currentPC, sp++, uncheckedCast(data[currentPC], SqueakObjectAt0NodeGen.class).execute(this, FrameAccess.getReceiver(frame), b & 0xF));
                         break;
                     }
@@ -345,7 +339,7 @@ public final class InterpreterSistaV1Node extends AbstractInterpreterNode {
                     }
                     case BC.PUSH_TEMP_VAR_0, BC.PUSH_TEMP_VAR_1, BC.PUSH_TEMP_VAR_2, BC.PUSH_TEMP_VAR_3, BC.PUSH_TEMP_VAR_4, BC.PUSH_TEMP_VAR_5, BC.PUSH_TEMP_VAR_6, BC.PUSH_TEMP_VAR_7, //
                         BC.PUSH_TEMP_VAR_8, BC.PUSH_TEMP_VAR_9, BC.PUSH_TEMP_VAR_A, BC.PUSH_TEMP_VAR_B: {
-                        pushFollowed(frame, currentPC, sp++, getTemp(frame, b & 0xF));
+                        pushFollowed(frame, currentPC, sp++, FrameAccess.getStackValue(frame, b & 0xF));
                         break;
                     }
                     case BC.PUSH_RECEIVER: {
@@ -752,7 +746,7 @@ public final class InterpreterSistaV1Node extends AbstractInterpreterNode {
                         break;
                     }
                     case BC.POP_INTO_TEMP_VAR_0, BC.POP_INTO_TEMP_VAR_1, BC.POP_INTO_TEMP_VAR_2, BC.POP_INTO_TEMP_VAR_3, BC.POP_INTO_TEMP_VAR_4, BC.POP_INTO_TEMP_VAR_5, BC.POP_INTO_TEMP_VAR_6, BC.POP_INTO_TEMP_VAR_7: {
-                        setStackValue(frame, b & 7, pop(frame, --sp));
+                        FrameAccess.setStackValue(frame, b & 7, pop(frame, --sp));
                         break;
                     }
                     case BC.POP_STACK: {
@@ -787,7 +781,7 @@ public final class InterpreterSistaV1Node extends AbstractInterpreterNode {
                         break;
                     }
                     case BC.LONG_PUSH_TEMPORARY_VARIABLE: {
-                        pushFollowed(frame, currentPC, sp++, getTemp(frame, getUnsignedInt(bc, pc++)));
+                        pushFollowed(frame, currentPC, sp++, FrameAccess.getStackValue(frame, getUnsignedInt(bc, pc++)));
                         break;
                     }
                     case BC.PUSH_NEW_ARRAY: {
@@ -924,7 +918,7 @@ public final class InterpreterSistaV1Node extends AbstractInterpreterNode {
                         break;
                     }
                     case BC.LONG_STORE_AND_POP_TEMPORARY_VARIABLE: {
-                        setStackValue(frame, getByte(bc, pc++), pop(frame, --sp));
+                        FrameAccess.setStackValue(frame, getByte(bc, pc++), pop(frame, --sp));
                         break;
                     }
                     case BC.EXT_STORE_RECEIVER_VARIABLE: {
@@ -940,7 +934,7 @@ public final class InterpreterSistaV1Node extends AbstractInterpreterNode {
                         break;
                     }
                     case BC.LONG_STORE_TEMPORARY_VARIABLE: {
-                        setStackValue(frame, getByte(bc, pc++), top(frame, sp));
+                        FrameAccess.setStackValue(frame, getByte(bc, pc++), top(frame, sp));
                         break;
                     }
                     /* 3 byte bytecodes */
@@ -948,7 +942,7 @@ public final class InterpreterSistaV1Node extends AbstractInterpreterNode {
                         pc += 2;
                         if (getByte(bc, pc) == BC.LONG_STORE_TEMPORARY_VARIABLE) {
                             assert sp > 0;
-                            setStackValue(frame, sp - 1, getErrorObject());
+                            FrameAccess.setStackValue(frame, sp - 1, getErrorObject());
                         }
                         break;
                     }
@@ -983,19 +977,20 @@ public final class InterpreterSistaV1Node extends AbstractInterpreterNode {
                     case BC.PUSH_REMOTE_TEMP_LONG: {
                         final int remoteTempIndex = getUnsignedInt(bc, pc++);
                         final int tempVectorIndex = getUnsignedInt(bc, pc++);
-                        pushFollowed(frame, currentPC, sp++, uncheckedCast(data[currentPC], SqueakObjectAt0NodeGen.class).execute(this, getTemp(frame, tempVectorIndex), remoteTempIndex));
+                        pushFollowed(frame, currentPC, sp++,
+                                        uncheckedCast(data[currentPC], SqueakObjectAt0NodeGen.class).execute(this, FrameAccess.getStackValue(frame, tempVectorIndex), remoteTempIndex));
                         break;
                     }
                     case BC.STORE_REMOTE_TEMP_LONG: {
                         final int remoteTempIndex = getUnsignedInt(bc, pc++);
                         final int tempVectorIndex = getUnsignedInt(bc, pc++);
-                        uncheckedCast(data[currentPC], SqueakObjectAtPut0Node.class).execute(this, getTemp(frame, tempVectorIndex), remoteTempIndex, top(frame, sp));
+                        uncheckedCast(data[currentPC], SqueakObjectAtPut0Node.class).execute(this, FrameAccess.getStackValue(frame, tempVectorIndex), remoteTempIndex, top(frame, sp));
                         break;
                     }
                     case BC.STORE_AND_POP_REMOTE_TEMP_LONG: {
                         final int remoteTempIndex = getUnsignedInt(bc, pc++);
                         final int tempVectorIndex = getUnsignedInt(bc, pc++);
-                        uncheckedCast(data[currentPC], SqueakObjectAtPut0Node.class).execute(this, getTemp(frame, tempVectorIndex), remoteTempIndex, pop(frame, --sp));
+                        uncheckedCast(data[currentPC], SqueakObjectAtPut0Node.class).execute(this, FrameAccess.getStackValue(frame, tempVectorIndex), remoteTempIndex, pop(frame, --sp));
                         break;
                     }
                     default: {
