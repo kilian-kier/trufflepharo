@@ -6,6 +6,7 @@
  */
 package de.hpi.swa.trufflesqueak.nodes.process;
 
+import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.dsl.Cached;
 import com.oracle.truffle.api.dsl.Cached.Exclusive;
 import com.oracle.truffle.api.dsl.GenerateCached;
@@ -49,25 +50,29 @@ public abstract class SignalSemaphoreNode extends AbstractNode {
 
     public abstract boolean executeSignal(VirtualFrame frame, Object semaphoreOrNil);
 
-    @Specialization(guards = {"isSemaphore(semaphore)", "semaphore.isEmptyList(readNode)"}, limit = "1")
-    protected static final boolean doSignalEmpty(final PointersObject semaphore,
+    @Specialization(guards = {"isSemaphore(semaphore)", "asPointers(semaphore).isEmptyList(readNode)"}, limit = "1")
+    protected static final boolean doSignalEmpty(final Object semaphore,
                     @Exclusive @Cached final AbstractPointersObjectReadNode readNode,
                     @Exclusive @Cached final AbstractPointersObjectWriteNode writeNode) {
-        writeNode.execute(semaphore, SEMAPHORE.EXCESS_SIGNALS, readNode.executeLong(semaphore, SEMAPHORE.EXCESS_SIGNALS) + 1);
+        final PointersObject p = (PointersObject) semaphore;
+        writeNode.execute(p, SEMAPHORE.EXCESS_SIGNALS, readNode.executeLong(p, SEMAPHORE.EXCESS_SIGNALS) + 1);
         return false;
     }
 
-    @Specialization(guards = {"isSemaphore(semaphore)", "!semaphore.isEmptyList(readNode)"}, limit = "1")
-    protected static final boolean doSignal(final VirtualFrame frame, final PointersObject semaphore,
+    @Specialization(guards = {"isSemaphore(semaphore)", "!asPointers(semaphore).isEmptyList(readNode)"}, limit = "1")
+    protected static final boolean doSignal(final VirtualFrame frame, final Object semaphore,
                     @Exclusive @Cached final AbstractPointersObjectReadNode readNode,
                     @Exclusive @Cached final AbstractPointersObjectWriteNode writeNode,
                     @Cached final ResumeProcessNode resumeProcessNode) {
-        return resumeProcessNode.executeResume(frame, semaphore.removeFirstLinkOfList(readNode, writeNode));
+        return resumeProcessNode.executeResume(frame, ((PointersObject) semaphore).removeFirstLinkOfList(readNode, writeNode));
     }
 
-    @Specialization
-    protected static final boolean doNothing(@SuppressWarnings("unused") final NilObject nil) {
-        // nothing to do
+    @Specialization(guards = "!isSemaphore(semaphoreOrNil)")
+    protected static final boolean doNothing(@SuppressWarnings("unused") final Object semaphoreOrNil) {
         return false;
+    }
+
+    protected static final PointersObject asPointers(final Object obj) {
+        return (PointersObject) obj;
     }
 }

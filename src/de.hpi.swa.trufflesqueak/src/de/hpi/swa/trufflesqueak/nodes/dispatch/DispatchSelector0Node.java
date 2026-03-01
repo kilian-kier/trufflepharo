@@ -88,6 +88,10 @@ public final class DispatchSelector0Node extends DispatchSelectorNode {
         @NeverDefault
         public static final DispatchDirect0Node create(final NativeObject selector, final LookupClassGuard guard, final boolean canPrimFail) {
             final ClassObject receiverClass = guard.getSqueakClassInternal(null);
+            if (receiverClass == null) {
+                CompilerDirectives.transferToInterpreter();
+                throw de.hpi.swa.trufflesqueak.exceptions.SqueakExceptions.SqueakException.create("lookupClass is null for selector " + selector + " with guard: " + guard.getClass().getName());
+            }
             return create(selector, receiverClass, canPrimFail);
         }
 

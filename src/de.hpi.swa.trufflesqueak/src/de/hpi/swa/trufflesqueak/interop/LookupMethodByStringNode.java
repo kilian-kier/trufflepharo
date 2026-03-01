@@ -68,12 +68,32 @@ public abstract class LookupMethodByStringNode extends AbstractNode {
             final Object[] methodDictVariablePart = methodDict.getVariablePart();
             for (int i = 0; i < methodDictVariablePart.length; i++) {
                 final Object methodSelector = methodDictVariablePart[i];
-                if (methodSelector instanceof final NativeObject m && Arrays.equals(selectorBytes, m.getByteStorage())) {
+                if (methodSelector instanceof final NativeObject m && selectorMatchesNativeObject(selectorBytes, m)) {
                     return arrayReadNode.execute(node, pointersReadValuesNode.executeArray(methodDict, METHOD_DICT.VALUES), i);
                 }
             }
             lookupClass = lookupClass.getSuperclassOrNull();
         }
         return null; // Signals a doesNotUnderstand.
+    }
+
+    private static boolean selectorMatchesNativeObject(final byte[] selectorBytes, final NativeObject m) {
+        if (m.isByteType()) {
+            return Arrays.equals(selectorBytes, m.getByteStorage());
+        } else if (m.isIntType()) {
+            /* Handle WideSymbol (Pharo): compare int[] code points against UTF-8 selector bytes. */
+            final int[] ints = m.getIntStorage();
+            if (ints.length != selectorBytes.length) {
+                /* Quick check: only match if all code points are ASCII (1 byte each). */
+                return false;
+            }
+            for (int i = 0; i < ints.length; i++) {
+                if (ints[i] != (selectorBytes[i] & 0xFF)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 }

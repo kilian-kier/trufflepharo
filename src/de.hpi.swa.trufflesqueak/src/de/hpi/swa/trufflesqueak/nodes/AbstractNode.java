@@ -56,8 +56,8 @@ public abstract class AbstractNode extends Node {
         return getContext().flags.numericPrimsMixComparison();
     }
 
-    protected final boolean isSemaphore(final PointersObject object) {
-        return getContext().isSemaphoreClass(object.getSqueakClass());
+    protected final boolean isSemaphore(final Object object) {
+        return object instanceof final PointersObject p && getContext().isSemaphoreClass(p.getSqueakClass());
     }
 
 }

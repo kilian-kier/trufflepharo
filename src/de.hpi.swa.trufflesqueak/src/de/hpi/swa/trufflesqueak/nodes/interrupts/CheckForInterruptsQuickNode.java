@@ -100,9 +100,9 @@ public abstract class CheckForInterruptsQuickNode extends AbstractNode {
                 switchToNewProcess |= SignalSemaphoreNode.executeUncached(frame, image, specialObjects[SPECIAL_OBJECT.THE_FINALIZATION_SEMAPHORE]);
             }
             if (istate.trySemaphoresToSignal()) {
-                final ArrayObject externalObjects = (ArrayObject) specialObjects[SPECIAL_OBJECT.EXTERNAL_OBJECTS_ARRAY];
-                if (!externalObjects.isEmptyType()) { // signal external semaphores
-                    final Object[] semaphores = externalObjects.getObjectStorage();
+                final Object externalObjects = specialObjects[SPECIAL_OBJECT.EXTERNAL_OBJECTS_ARRAY];
+                if (externalObjects instanceof final ArrayObject externalArray && !externalArray.isEmptyType()) { // signal external semaphores
+                    final Object[] semaphores = externalArray.getObjectStorage();
                     Integer semaIndex;
                     while ((semaIndex = istate.nextSemaphoreToSignal()) != null) {
                         switchToNewProcess |= SignalSemaphoreNode.executeUncached(frame, image, semaphores[semaIndex - 1]);

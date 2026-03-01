@@ -185,7 +185,7 @@ public abstract class LookupClassGuard {
     }
 
     private static final class FloatObjectGuard extends LookupClassGuard {
-        private static final ForeignObjectGuard SINGLETON = new ForeignObjectGuard();
+        private static final FloatObjectGuard SINGLETON = new FloatObjectGuard();
 
         @Override
         public boolean check(final Object receiver) {
@@ -201,9 +201,9 @@ public abstract class LookupClassGuard {
     private static final class AbstractSqueakObjectWithClassAndHashGuard extends LookupClassGuard {
         private final ClassObject expectedClass;
 
-        private AbstractSqueakObjectWithClassAndHashGuard(final AbstractSqueakObjectWithClassAndHash receiver) {
+        protected AbstractSqueakObjectWithClassAndHashGuard(final AbstractSqueakObjectWithClassAndHash receiver) {
             expectedClass = receiver.getSqueakClass();
-            assert expectedClass.assertNotForwarded();
+            assert expectedClass != null && expectedClass.assertNotForwarded();
         }
 
         @Override
