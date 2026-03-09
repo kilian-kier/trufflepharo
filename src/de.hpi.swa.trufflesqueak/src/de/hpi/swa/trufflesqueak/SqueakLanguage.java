@@ -61,7 +61,7 @@ public final class SqueakLanguage extends TruffleLanguage<SqueakImageContext> {
             return image.getSqueakImage().asCallTarget();
         } else {
             image.ensureLoaded();
-            return image.getDoItContextNode(request).getCallTarget();
+            return image.parseRequest(request).getCallTarget();
         }
     }
 

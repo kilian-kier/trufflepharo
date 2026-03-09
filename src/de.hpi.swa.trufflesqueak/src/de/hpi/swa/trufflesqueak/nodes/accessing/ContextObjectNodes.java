@@ -127,6 +127,24 @@ public final class ContextObjectNodes {
             context.removeClosure();
         }
 
+        @SuppressWarnings("unused")
+        @Specialization(guards = {"index == CLOSURE_OR_NIL", "!isBlockClosureObject(value)", "!isNilObject(value)"})
+        protected static final void doClosureGeneric(final ContextObject context, final long index, final Object value) {
+            /*
+             * Pharo's ConstantBlockClosure is not a BlockClosureObject in TruffleSqueak.
+             * Store it as a temp in the context's frame to avoid crashing the debugger.
+             */
+            context.atTempPut(0, value);
+        }
+
+        protected static boolean isBlockClosureObject(final Object value) {
+            return value instanceof BlockClosureObject;
+        }
+
+        protected static boolean isNilObject(final Object value) {
+            return value instanceof NilObject;
+        }
+
         @Specialization(guards = "index == RECEIVER")
         protected static final void doReceiver(final ContextObject context, @SuppressWarnings("unused") final long index, final Object value) {
             context.setReceiver(value);
