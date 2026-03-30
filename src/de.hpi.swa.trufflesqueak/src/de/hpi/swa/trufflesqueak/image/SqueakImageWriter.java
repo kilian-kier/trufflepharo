@@ -22,6 +22,7 @@ import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.TruffleFile;
 
 import de.hpi.swa.trufflesqueak.exceptions.SqueakExceptions.SqueakException;
+import de.hpi.swa.trufflesqueak.io.SqueakDisplay;
 import de.hpi.swa.trufflesqueak.model.AbstractSqueakObject;
 import de.hpi.swa.trufflesqueak.model.AbstractSqueakObjectWithHash;
 import de.hpi.swa.trufflesqueak.model.BooleanObject;
@@ -86,6 +87,15 @@ public final class SqueakImageWriter {
 
     private void run(final ContextObject thisContext) throws IOException {
         final long start = MiscUtils.currentTimeMillis();
+        /* Obtain and save the current window dimensions. */
+        // ToDo: Clean up: move the following into SqueakDisplay when AWT is gone
+        if (image.getDisplay() instanceof final SqueakDisplay display) {
+            final int width = display.getWindowWidth();
+            final int height = display.getWindowHeight();
+            if (width > 0 && height > 0) {
+                image.flags.setScreenSize(width, height);
+            }
+        }
         nextChunk = image.flags.getOldBaseAddress();
         final PointersObject activeProcess = image.getActiveProcessSlow();
         try {
@@ -114,7 +124,7 @@ public final class SqueakImageWriter {
         writeLong(image.flags.getOldBaseAddress()); // oldBaseAddress
         writeLong(specialObjectOop);
         writeLong(0xffee); // last hash
-        writeLong(image.flags.getSnapshotScreenSize());
+        writeLong(image.flags.getScreenSize());
         writeLong(image.flags.getHeaderFlags());
         writeInt(0); // extra VM memory
         /* Continue with Spur header. */

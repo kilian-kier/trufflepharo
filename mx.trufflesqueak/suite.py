@@ -10,7 +10,7 @@ suite = {
     #  METADATA
     # ==========================================================================
     "name": "trufflesqueak",
-    "mxversion": "7.54.7",
+    "mxversion": "7.73.0",
     "versionConflictResolution": "latest",
     "version": "25.0.2",
     "trufflesqueak:dependencyMap": {
@@ -49,7 +49,7 @@ suite = {
             {
                 "name": "truffle",
                 "subdir": True,
-                "version": "graal-25.0.1",
+                "version": "8b6dc600f5d545c5249a9a53df9c2646f4763094",
                 "urls": [{"url": "https://github.com/oracle/graal", "kind": "git"}],
             }
         ],
@@ -89,47 +89,6 @@ suite = {
                 },
                 "<others>": {"<others>": {"optional": True}},
             },
-        },
-        "GRAALJS_LANGUAGE": {
-            "digest": "sha512:dbd9395b23a08718ec1273aa4f50a8d6e432a2aa79e6839d0fd13c9e16084fbaef3e3f0984a1c6d5a9ffecb595519c742250694c90bceb81e1eb55bc30af745e",
-            "maven": {
-                "groupId": "org.graalvm.js",
-                "artifactId": "js-language",
-                "version": "25.0.1",
-            },
-            "dependencies": ["REGEX_LANGUAGE", "SHADOWED_ICU4J"],
-            "useModulePath": True,
-            "licence": "UPL",
-        },
-        "REGEX_LANGUAGE": {
-            "digest": "sha512:a215b10c4fd73eff7522a78ab830134ad23176ec0d36a2e620bb2ff9a417994eed5c227c0bc12e22890904ba958b4da44f92f4f78e922fbcd2857abdc168f869",
-            "maven": {
-                "groupId": "org.graalvm.regex",
-                "artifactId": "regex",
-                "version": "25.0.1",
-            },
-            "dependencies": ["SHADOWED_ICU4J"],
-            "useModulePath": True,
-            "licence": "UPL",
-        },
-        "SHADOWED_ICU4J": {
-            "digest": "sha512:e122e16fe4fc8fa65714fe526f4eb625605a375a11e00edb6bd39352afeeb690c749c92f427135c1f01dc552b9659a28fda7730f01e0306234d8439facc7215a",
-            "maven": {
-                "groupId": "org.graalvm.shadowed",
-                "artifactId": "icu4j",
-                "version": "25.0.1",
-            },
-            "dependencies": ["SHADOWED_XZ"],
-            "useModulePath": True,
-        },
-        "SHADOWED_XZ": {
-            "digest": "sha512:b12f38e92164e15afe257b1907ac113f6fd39e2413f208030eb376fb74e9dea5e083cabe2b5f3c3fbf4caeb63889b2b869160228d1a6c0def7f070fb60e5b2c3",
-            "maven": {
-                "groupId": "org.graalvm.shadowed",
-                "artifactId": "xz",
-                "version": "25.0.1",
-            },
-            "useModulePath": True,
         },
     },
     # ==========================================================================
@@ -224,8 +183,6 @@ suite = {
                 "de.hpi.swa.trufflesqueak",
                 "mx:JUNIT",
                 "sdk:MAVEN_DOWNLOADER",
-                "GRAALJS_LANGUAGE",
-                "REGEX_LANGUAGE",
             ],
             "checkstyle": "de.hpi.swa.trufflesqueak",
             "jacoco": "include",
