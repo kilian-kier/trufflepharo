@@ -29,8 +29,13 @@ public final class SqueakTranscriptForwarder extends PrintStream {
         super(out, autoFlush);
     }
 
-    public void setUp(final Context context) throws IOException {
-        transcriptBlock = context.eval(Source.newBuilder(SqueakLanguageConfig.ID, TRANSCRIPT_BLOCK_CODE, TRANSCRIPT_BLOCK_CODE_NAME).build());
+    public void setUp(final Context context) {
+        try {
+            transcriptBlock = context.eval(Source.newBuilder(SqueakLanguageConfig.ID, TRANSCRIPT_BLOCK_CODE, TRANSCRIPT_BLOCK_CODE_NAME).build());
+        } catch (final Exception e) {
+            /* Log but proceed: transcript forwarding is non-essential for boot. */
+            System.err.println("[TruffleSqueak] Warning: Could not set up transcript forwarding: " + e.getMessage());
+        }
     }
 
     @Override

@@ -93,7 +93,12 @@ public final class TruffleSqueakLauncher extends AbstractLanguageLauncher {
     }
 
     private static String[] getRemainingArguments(final List<String> arguments, final int index) {
-        return arguments.subList(index + 1, arguments.size()).toArray(new String[0]);
+        final List<String> remaining = arguments.subList(index + 1, arguments.size());
+        /* Strip leading "--" separator if present — it separates launcher args from image args. */
+        if (!remaining.isEmpty() && "--".equals(remaining.get(0))) {
+            return remaining.subList(1, remaining.size()).toArray(new String[0]);
+        }
+        return remaining.toArray(new String[0]);
     }
 
     @Override
@@ -145,7 +150,26 @@ public final class TruffleSqueakLauncher extends AbstractLanguageLauncher {
                 final Value result = context.eval(
                                 Source.newBuilder(getLanguageId(), sourceCode, "Compiler>>#evaluate:").internal(true).cached(false).mimeType(SqueakLanguageConfig.ST_MIME_TYPE).build());
                 if (!quiet) {
-                    println("[trufflesqueak] Result: " + (result.isString() ? result.asString() : result.toString()));
+                    final String resultString;
+                    if (result.isString()) {
+                        resultString = result.asString();
+                    } else if (result.isBoolean()) {
+                        resultString = Boolean.toString(result.asBoolean());
+                    } else if (result.fitsInLong()) {
+                        resultString = Long.toString(result.asLong());
+                    } else if (result.fitsInDouble()) {
+                        resultString = Double.toString(result.asDouble());
+                    } else if (result.isNull()) {
+                        resultString = "nil";
+                    } else {
+                        try {
+                            resultString = result.toString();
+                        } catch (final Exception e) {
+                            println("[trufflesqueak] Result: <unable to display: " + e.getMessage() + ">");
+                            return 0;
+                        }
+                    }
+                    println("[trufflesqueak] Result: " + resultString);
                 }
                 return 0;
             } else {

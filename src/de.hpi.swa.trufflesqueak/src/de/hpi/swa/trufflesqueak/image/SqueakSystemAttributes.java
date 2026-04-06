@@ -102,6 +102,13 @@ public final class SqueakSystemAttributes {
             default -> {
                 if (index >= 2 && index <= 1000) {
                     yield getCMDArgument(index - 2);
+                } else if (index == -1 && image.options.isHeadless()) {
+                    /*
+                     * Expose --headless as VM option at attribute -1 so that Pharo's
+                     * SmalltalkImage>>isHeadless (which scans attributes -1000..1000)
+                     * detects headless mode without polluting the image arguments.
+                     */
+                    yield asByteString("--headless");
                 } else {
                     yield NilObject.SINGLETON;
                 }

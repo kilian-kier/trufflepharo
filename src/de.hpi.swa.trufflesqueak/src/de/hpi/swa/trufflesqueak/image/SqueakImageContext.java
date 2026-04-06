@@ -24,6 +24,9 @@ import com.oracle.truffle.api.TruffleFile;
 import com.oracle.truffle.api.TruffleLanguage.ContextReference;
 import com.oracle.truffle.api.TruffleLanguage.ParsingRequest;
 import com.oracle.truffle.api.dsl.Bind.DefaultExpression;
+import com.oracle.truffle.api.nodes.IndirectCallNode;
+import com.oracle.truffle.api.nodes.RootNode;
+import com.oracle.truffle.api.frame.FrameDescriptor;
 import com.oracle.truffle.api.frame.MaterializedFrame;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.interop.InteropLibrary;
@@ -39,11 +42,13 @@ import de.hpi.swa.trufflesqueak.SqueakLanguage;
 import de.hpi.swa.trufflesqueak.SqueakOptions.SqueakContextOptions;
 import de.hpi.swa.trufflesqueak.exceptions.PrimitiveFailed;
 import de.hpi.swa.trufflesqueak.exceptions.ProcessSwitch;
+import de.hpi.swa.trufflesqueak.exceptions.Returns;
 import de.hpi.swa.trufflesqueak.exceptions.SqueakExceptions.SqueakException;
 import de.hpi.swa.trufflesqueak.io.SqueakDisplay;
 import de.hpi.swa.trufflesqueak.model.AbstractPointersObject;
 import de.hpi.swa.trufflesqueak.model.AbstractSqueakObject;
 import de.hpi.swa.trufflesqueak.model.AbstractSqueakObjectWithClassAndHash;
+import de.hpi.swa.trufflesqueak.model.AbstractSqueakObjectWithHash;
 import de.hpi.swa.trufflesqueak.model.ArrayObject;
 import de.hpi.swa.trufflesqueak.model.BlockClosureObject;
 import de.hpi.swa.trufflesqueak.model.BooleanObject;
@@ -100,27 +105,27 @@ public final class SqueakImageContext {
     public final ClassObject arrayClass = new ClassObject(this);
     public final PointersObject smalltalk = new PointersObject();
     public final ClassObject floatClass = new ClassObject(this);
-    public final ClassObject methodContextClass = new ClassObject(this);
+    @CompilationFinal public ClassObject methodContextClass = new ClassObject(this);
     @CompilationFinal private ClassObject wideStringClass;
-    public final ClassObject pointClass = new ClassObject(this);
-    public final ClassObject largePositiveIntegerClass = new ClassObject(this);
-    public final ClassObject messageClass = new ClassObject(this);
-    public final ClassObject compiledMethodClass = new ClassObject(this);
-    public final ClassObject semaphoreClass = new ClassObject(this);
-    public final ClassObject characterClass = new ClassObject(this);
+    @CompilationFinal public ClassObject pointClass = new ClassObject(this);
+    @CompilationFinal public ClassObject largePositiveIntegerClass = new ClassObject(this);
+    @CompilationFinal public ClassObject messageClass = new ClassObject(this);
+    public ClassObject compiledMethodClass = new ClassObject(this);
+    @CompilationFinal public ClassObject semaphoreClass = new ClassObject(this);
+    @CompilationFinal public ClassObject characterClass = new ClassObject(this);
     public final NativeObject doesNotUnderstand = new NativeObject();
     public final NativeObject cannotReturn = new NativeObject();
     public final ArrayObject specialSelectors = new ArrayObject();
     public final NativeObject mustBeBooleanSelector = new NativeObject();
-    public final ClassObject byteArrayClass = new ClassObject(this);
-    public final ClassObject processClass = new ClassObject(this);
+    @CompilationFinal public ClassObject byteArrayClass = new ClassObject(this);
+    @CompilationFinal public ClassObject processClass = new ClassObject(this);
     @CompilationFinal private ClassObject doubleByteArrayClass;
     @CompilationFinal private ClassObject wordArrayClass;
     @CompilationFinal private ClassObject doubleWordArrayClass;
     public final NativeObject cannotInterpretSelector = new NativeObject(); // TODO: use selector
-    public final ClassObject blockClosureClass = new ClassObject(this);
+    @CompilationFinal public ClassObject blockClosureClass = new ClassObject(this);
     @CompilationFinal private ClassObject fullBlockClosureClass;
-    public final ClassObject largeNegativeIntegerClass = new ClassObject(this);
+    @CompilationFinal public ClassObject largeNegativeIntegerClass = new ClassObject(this);
     @CompilationFinal private ClassObject externalAddressClass;
     @CompilationFinal private ClassObject externalStructureClass;
     @CompilationFinal private ClassObject externalDataClass;
@@ -133,7 +138,7 @@ public final class SqueakImageContext {
     @CompilationFinal private ClassObject unsafeAlienClass;
 
     @CompilationFinal public ClassObject smallFloatClass;
-    @CompilationFinal private ClassObject byteSymbolClass;
+    @CompilationFinal public ClassObject byteSymbolClass;
     @CompilationFinal private ClassObject foreignObjectClass;
     private final CyclicAssumption foreignObjectClassStable = new CyclicAssumption("ForeignObjectClassStable assumption");
     @CompilationFinal private ClassObject linkedListClass;
@@ -143,10 +148,10 @@ public final class SqueakImageContext {
     public final ClassObject nilClass = new ClassObject(this);
 
     public final CompiledCodeObject dummyMethod = new CompiledCodeObject(
-                    /* Object>>#yourself with large frame and without literals */
-                    new byte[]{(byte) 139, 0, 1, (byte) 192, (byte) 169, (byte) 142, (byte) 254},
+                    /* Object>>#yourself */
+                    new byte[]{(byte) 112, (byte) 124, 0, 0, 0, 0, 0},
                     CompiledCodeHeaderUtils.makeHeaderWord(true, 0, 0, 0, true, true),
-                    ArrayUtils.EMPTY_ARRAY, compiledMethodClass);
+                    ArrayUtils.EMPTY_ARRAY, compiledMethodClass == null ? new ClassObject(this) : compiledMethodClass);
     public final VirtualFrame externalSenderFrame = Truffle.getRuntime().createVirtualFrame(FrameAccess.newWith(NilObject.SINGLETON, null, NilObject.SINGLETON), dummyMethod.getFrameDescriptor());
 
     /* Method Cache */
@@ -167,7 +172,6 @@ public final class SqueakImageContext {
     @CompilationFinal(dimensions = 1) private byte[] resourcesDirectoryBytes;
     @CompilationFinal(dimensions = 1) private byte[] resourcesPathBytes;
     private final boolean isHeadless;
-    private boolean isPharo;
     public final SqueakContextOptions options;
     private final SqueakSystemAttributes systemAttributes = new SqueakSystemAttributes(this);
 
@@ -208,6 +212,7 @@ public final class SqueakImageContext {
     private AbstractSqueakObject requestorSharedInstanceOrNil;
     @CompilationFinal private PointersObject scheduler;
     @CompilationFinal private Object smalltalkScope;
+    @CompilationFinal private boolean isPharo;
 
     /* Plugins */
     @CompilationFinal private InterpreterProxy interpreterProxy;
@@ -246,6 +251,14 @@ public final class SqueakImageContext {
         return get(null);
     }
 
+    public boolean isPharo() {
+        return isPharo;
+    }
+
+    public void setPharo(final boolean value) {
+        isPharo = value;
+    }
+
     public void ensureLoaded() {
         if (squeakImage == null) {
             // Load image.
@@ -255,31 +268,36 @@ public final class SqueakImageContext {
                 return;
             }
 
-            final String prepareHeadlessImageScript = """
-                            "Remove active context."
-                            Processor activeProcess instVarNamed: #suspendedContext put: nil.
+            if (isPharo()) {
+                /* For Pharo, do not clear the active context. The snapshot context resumes
+                 * naturally and handles SessionManager startup and CommandLineHandler. */
+            } else {
+                final String prepareHeadlessImageScript = """
+                                "Remove active context."
+                                Processor activeProcess instVarNamed: #suspendedContext put: nil.
 
-                            "Avoid interactive windows and instead exit on errors."
-                            %s ifFalse: [ ToolSet default: CommandLineToolSet ].
+                                "Avoid interactive windows and instead exit on errors."
+                                %s ifFalse: [ ToolSet default: CommandLineToolSet ].
 
-                            "Start up image (see SmalltalkImage>>#snapshot:andQuit:withExitCode:embedded:)."
-                            Smalltalk
-                                clearExternalObjects;
-                                processStartUpList: true;
-                                setPlatformPreferences;
-                                recordStartupStamp.
+                                "Start up image (see SmalltalkImage>>#snapshot:andQuit:withExitCode:embedded:)."
+                                Smalltalk
+                                    clearExternalObjects;
+                                    processStartUpList: true;
+                                    setPlatformPreferences;
+                                    recordStartupStamp.
 
-                            "Set author information."
-                            Utilities
-                                authorName: 'TruffleSqueak';
-                                setAuthorInitials: 'TS'.
-                            """.formatted(Boolean.toString(options.isTesting()));
-            try {
-                evaluate(prepareHeadlessImageScript);
-            } catch (final Exception e) {
-                LogUtils.IMAGE.log(Level.WARNING, "startUpList failed", e);
-            } finally {
-                interrupt.clear();
+                                "Set author information."
+                                Utilities
+                                    authorName: 'TruffleSqueak';
+                                    setAuthorInitials: 'TS'.
+                                """.formatted(Boolean.toString(options.isTesting()));
+                try {
+                    evaluate(prepareHeadlessImageScript);
+                } catch (final Exception e) {
+                    LogUtils.IMAGE.log(Level.WARNING, "startUpList failed", e);
+                } finally {
+                    interrupt.clear();
+                }
             }
         }
     }
@@ -301,16 +319,21 @@ public final class SqueakImageContext {
     public Object evaluateUninterruptably(final String sourceCode) {
         final boolean wasActive = interrupt.deactivate();
         try {
-            return evaluate(sourceCode);
+            final ExecuteTopLevelContextNode rootNode = getDoItContextNode(sourceCode);
+            while (true) {
+                try {
+                    return rootNode.getCallTarget().call();
+                } catch (final ProcessSwitch ps) {
+                    interrupt.clear();
+                } catch (final de.hpi.swa.trufflesqueak.exceptions.Returns.AbstractStandardSendReturn r) {
+                    throw de.hpi.swa.trufflesqueak.exceptions.SqueakExceptions.SqueakException.create("Unexpected return exception during uninterruptable evaluation", r);
+                }
+            }
         } finally {
             interrupt.reactivate(wasActive);
         }
     }
 
-    @TruffleBoundary
-    public Object lookup(final String member) {
-        return smalltalk.send(this, "at:ifAbsent:", asByteSymbol(member), NilObject.SINGLETON);
-    }
 
     public boolean patch(final SqueakLanguage.Env newEnv) {
         CompilerDirectives.transferToInterpreterAndInvalidate();
@@ -322,8 +345,156 @@ public final class SqueakImageContext {
     public ExecuteTopLevelContextNode getActiveContextNode() {
         final PointersObject activeProcess = getActiveProcessSlow();
         final ContextObject activeContext = (ContextObject) activeProcess.instVarAt0Slow(PROCESS.SUSPENDED_CONTEXT);
+        LogUtils.IMAGE.info(() -> "Active context: " + activeContext + " method: " + activeContext.getCodeObject() +
+                        " sender: " + activeContext.getSender());
         activeProcess.instVarAtPut0Slow(PROCESS.SUSPENDED_CONTEXT, NilObject.SINGLETON);
         return ExecuteTopLevelContextNode.create(this, getLanguage(), activeContext, true);
+    }
+
+    @TruffleBoundary
+    public RootNode parseRequest(final ParsingRequest request) {
+        if (isPharo()) {
+            return getPharoDoItRootNode(request);
+        }
+        return getDoItContextNode(request);
+    }
+
+    /**
+     * For Pharo images, compile the source as a DoIt method using OpalCompiler, execute it
+     * directly, and convert the result to a Java String for display by the launcher.
+     */
+    @TruffleBoundary
+    private RootNode getPharoDoItRootNode(final ParsingRequest request) {
+        final String source = request.getSource().getCharacters().toString();
+        final Object compilerClass = lookup("OpalCompiler");
+        if (!(compilerClass instanceof final ClassObject opalCompiler)) {
+            throw CompilerDirectives.shouldNotReachHere("OpalCompiler not found in Pharo image");
+        }
+
+        final SqueakImageContext image = this;
+        return new RootNode(getLanguage(), new FrameDescriptor()) {
+            @Override
+            public Object execute(final VirtualFrame frame) {
+                return pharoCompileAndExecute();
+            }
+
+            @TruffleBoundary
+            private Object pharoCompileAndExecute() {
+                /*
+                 * Compile with error handler that captures error + Smalltalk stack, then
+                 * returns the error object. We detect it on the Java side and throw a
+                 * SqueakExceptionWrapper for proper Truffle error reporting.
+                 */
+                final AbstractSqueakObjectWithClassAndHash compiler = (AbstractSqueakObjectWithClassAndHash) opalCompiler.send(image, "new");
+                compiler.send(image, "source:", image.asByteString(
+                                "DoIt ^ [ " + source + " ] on: Error do: [ :e | e freeze. e ]"));
+                compiler.send(image, "class:", image.nilClass);
+                compiler.send(image, "requestor:", NilObject.SINGLETON);
+                final Object compiled = compiler.send(image, "compile");
+
+                if (!(compiled instanceof final CompiledCodeObject doItMethod)) {
+                    return "Compilation error (got " + compiled.getClass().getSimpleName() + " instead of CompiledMethod)";
+                }
+
+                internLiterals(doItMethod);
+
+                /* Execute the DoIt method with nil as receiver. */
+                Object result;
+                try {
+                    result = IndirectCallNode.getUncached().call(
+                                    doItMethod.getCallTarget(),
+                                    FrameAccess.newWith(NilObject.SINGLETON, null, NilObject.SINGLETON, new Object[0]));
+                } catch (final ProcessSwitch e) {
+                    return "Execution error: unexpected process switch";
+                } catch (final Returns.AbstractStandardSendReturn r) {
+                    return "Execution error: " + r.getReturnValue();
+                }
+
+                return resultToString(result);
+            }
+
+            private String resultToString(final Object result) {
+                if (result instanceof Long || result instanceof Double || result instanceof Boolean) {
+                    return result.toString();
+                } else if (result == NilObject.SINGLETON) {
+                    return "nil";
+                } else if (result instanceof final NativeObject no) {
+                    if (no.isByteType() && image.isByteStringClass(no.getSqueakClass())) {
+                        return "'" + no.asStringUnsafe() + "'";
+                    }
+                    if (no.isIntType() && image.isWideStringClass(no.getSqueakClass())) {
+                        return "'" + no.asStringFromWideString() + "'";
+                    }
+                }
+                if (result instanceof final PointersObject po && isSmalltalkError(po)) {
+                    throwSmalltalkError(po);
+                }
+                if (result instanceof final AbstractSqueakObjectWithClassAndHash obj) {
+                    /* Try printString for complex objects, include class name. */
+                    try {
+                        final Object ps = obj.send(image, "printString");
+                        if (ps instanceof final NativeObject no && no.isByteType()) {
+                            return no.asStringUnsafe() + " - " + obj.getSqueakClass().getClassName() + " @" + Integer.toHexString(obj.hashCode());
+                        }
+                    } catch (final Exception e) {
+                        /* Fall through to default. */
+                    }
+                    return obj.getSqueakClass().getClassName() + " @" + Integer.toHexString(obj.hashCode());
+                }
+                return String.valueOf(result);
+            }
+
+            private static boolean isSmalltalkError(final PointersObject obj) {
+                ClassObject cls = obj.getSqueakClass();
+                while (cls != null) {
+                    if ("Error".equals(cls.getClassName())) {
+                        return true;
+                    }
+                    cls = cls.getSuperclassOrNull();
+                }
+                return false;
+            }
+
+            private void throwSmalltalkError(final PointersObject errorObj) {
+                /* Get error description. */
+                String description = errorObj.getSqueakClass().getClassName();
+                try {
+                    final Object desc = errorObj.send(image, "description");
+                    if (desc instanceof final NativeObject no && no.isByteType()) {
+                        description = no.asStringUnsafe();
+                    }
+                } catch (final Exception e) {
+                    /* Ignore. */
+                }
+
+                /* Walk signalerContext to build Smalltalk stack trace. */
+                final StringBuilder sb = new StringBuilder(description);
+                try {
+                    Object ctx = errorObj.send(image, "signalerContext");
+                    int depth = 0;
+                    while (ctx instanceof final AbstractSqueakObjectWithHash ctxObj && depth < 20) {
+                        try {
+                            final Object ps = ctxObj.send(image, "printString");
+                            if (ps instanceof final NativeObject no && no.isByteType()) {
+                                sb.append("\n\tat <smalltalk> ").append(no.asStringUnsafe()).append("(Unknown)");
+                            }
+                        } catch (final Exception e) {
+                            break;
+                        }
+                        try {
+                            ctx = ctxObj.send(image, "sender");
+                        } catch (final Exception e) {
+                            break;
+                        }
+                        depth++;
+                    }
+                } catch (final Exception e) {
+                    /* No stack trace available. */
+                }
+
+                throw SqueakException.create(sb.toString());
+            }
+        };
     }
 
     @TruffleBoundary
@@ -339,7 +510,13 @@ public final class SqueakImageContext {
                 blockBody = ":" + String.join(" :", request.getArgumentNames()) + " | " + source.getCharacters();
             }
         }
-        final String sourceCode = "[[ " + blockBody + " ] on: Error do: [ :e | Interop throwException: e ]]";
+        final String sourceCode;
+        if (isPharo()) {
+            /* Pharo does not have the Interop class, so use a simpler wrapper. */
+            sourceCode = "[ " + blockBody + " ]";
+        } else {
+            sourceCode = "[[ " + blockBody + " ] on: Error do: [ :e | Interop throwException: e ]]";
+        }
         return DoItRootNode.create(this, language, (BlockClosureObject) evaluateUninterruptably(sourceCode));
     }
 
@@ -352,17 +529,21 @@ public final class SqueakImageContext {
     @TruffleBoundary
     private ExecuteTopLevelContextNode getDoItContextNode(final String source) {
         /*
-         * (Parser new parse: '1 + 2 * 3' class: UndefinedObject noPattern: true notifying: nil
-         * ifFail: [^nil]) generate
+         * Pharo images do not have the Parser class. Fall back to OpalCompiler-based evaluation.
          */
-
         if (parserSharedInstance == null) {
-            parserSharedInstance = (PointersObject) ((ClassObject) lookup("Parser")).send(this, "new");
-            final Object polyglotRequestorClassOrNil = lookup("PolyglotRequestor");
-            if (polyglotRequestorClassOrNil instanceof final ClassObject polyglotRequestorClass) {
-                requestorSharedInstanceOrNil = (AbstractSqueakObject) polyglotRequestorClass.send(this, "default");
+            final Object parserClass = lookup("Parser");
+            if (parserClass instanceof final ClassObject parserClassObject) {
+                parserSharedInstance = (PointersObject) parserClassObject.send(this, "new");
+                final Object polyglotRequestorClassOrNil = lookup("PolyglotRequestor");
+                if (polyglotRequestorClassOrNil instanceof final ClassObject polyglotRequestorClass) {
+                    requestorSharedInstanceOrNil = (AbstractSqueakObject) polyglotRequestorClass.send(this, "default");
+                } else {
+                    requestorSharedInstanceOrNil = NilObject.SINGLETON;
+                }
             } else {
-                requestorSharedInstanceOrNil = NilObject.SINGLETON;
+                /* Parser not available (Pharo) — use OpalCompiler fallback. */
+                return getCompilerDoItContextNode(source);
             }
         }
 
@@ -383,6 +564,48 @@ public final class SqueakImageContext {
             throw CompilerDirectives.shouldNotReachHere("Unexpected process switch detected during parse request", e);
         }
         final CompiledCodeObject doItMethod = (CompiledCodeObject) methodNode.send(this, "generate");
+
+        final ContextObject doItContext = new ContextObject(doItMethod.getSqueakContextSize());
+        doItContext.setReceiver(NilObject.SINGLETON);
+        doItContext.setCodeObject(doItMethod);
+        doItContext.setInstructionPointer(0);
+        doItContext.setStackPointer(doItMethod.getNumTemps());
+        doItContext.setSenderUnsafe(NilObject.SINGLETON);
+        return ExecuteTopLevelContextNode.create(this, getLanguage(), doItContext, false);
+    }
+
+    @TruffleBoundary
+    private ExecuteTopLevelContextNode getCompilerDoItContextNode(final String source) {
+        /*
+         * Use OpalCompiler for Pharo images. Wrap the source in a DoIt method pattern so that
+         * OpalCompiler parses it as a method definition (avoiding the need for isScripting:).
+         * The method selector must be 'DoIt' so that ExecuteTopLevelContextNode can recognize
+         * it as a top-level return target.
+         */
+        final Object compilerClass = lookup("OpalCompiler");
+        if (!(compilerClass instanceof final ClassObject opalCompiler)) {
+            throw CompilerDirectives.shouldNotReachHere("Neither Parser nor OpalCompiler found in image");
+        }
+        final String doItSource = "DoIt ^ " + source;
+        final AbstractSqueakObjectWithClassAndHash compiler = (AbstractSqueakObjectWithClassAndHash) opalCompiler.send(this, "new");
+        compiler.send(this, "source:", asByteString(doItSource));
+        compiler.send(this, "class:", nilClass);
+        compiler.send(this, "requestor:", NilObject.SINGLETON);
+        final Object compileResult;
+        try {
+            compileResult = compiler.send(this, "compile");
+        } catch (final ProcessSwitch e) {
+            /*
+             * A ProcessSwitch exception is thrown in case of a syntax error to open the
+             * corresponding window. Fail with an appropriate exception here.
+             */
+            throw CompilerDirectives.shouldNotReachHere("Unexpected process switch detected during OpalCompiler compile request", e);
+        }
+        if (!(compileResult instanceof final CompiledCodeObject doItMethod)) {
+            throw CompilerDirectives.shouldNotReachHere("OpalCompiler compile did not return a CompiledMethod, got: " + compileResult);
+        }
+        /* Fix up literal selectors to use the image's interned symbols. */
+        internLiterals(doItMethod);
 
         final ContextObject doItContext = new ContextObject(doItMethod.getSqueakContextSize());
         doItContext.setReceiver(NilObject.SINGLETON);
@@ -743,8 +966,12 @@ public final class SqueakImageContext {
     }
 
     public ClassObject getFullBlockClosureClass() {
-        assert fullBlockClosureClass != null;
-        return fullBlockClosureClass;
+        return fullBlockClosureClass; /* may be null during image loading */
+    }
+
+    public void setFullBlockClosureClass(final ClassObject classObject) {
+        CompilerDirectives.transferToInterpreterAndInvalidate();
+        fullBlockClosureClass = classObject;
     }
 
     public ClassObject initializeFullBlockClosureClass() {
@@ -820,7 +1047,10 @@ public final class SqueakImageContext {
     }
 
     public ClassObject getForeignObjectClass() {
-        assert foreignObjectClass != null;
+        if (foreignObjectClass == null) {
+            CompilerDirectives.transferToInterpreterAndInvalidate();
+            return nilClass;
+        }
         return foreignObjectClass;
     }
 
@@ -869,6 +1099,9 @@ public final class SqueakImageContext {
     }
 
     public Object getSpecialObject(final int index) {
+        if (!specialObjectsArray.isObjectType()) {
+            return NilObject.SINGLETON;
+        }
         return specialObjectsArray.getObjectStorage()[index];
     }
 
@@ -877,15 +1110,24 @@ public final class SqueakImageContext {
     }
 
     private ArrayObject getSpecialSelectors() {
-        return (ArrayObject) getSpecialObject(SPECIAL_OBJECT.SPECIAL_SELECTORS);
+        final Object selectors = getSpecialObject(SPECIAL_OBJECT.SPECIAL_SELECTORS);
+        return selectors instanceof ArrayObject ? (ArrayObject) selectors : specialObjectsArray;
     }
 
     public NativeObject getSpecialSelector(final int index) {
-        return (NativeObject) getSpecialSelectors().getObjectStorage()[index * 2];
+        final ArrayObject selectors = getSpecialSelectors();
+        if (!selectors.isObjectType()) {
+            return null;
+        }
+        return (NativeObject) selectors.getObjectStorage()[index * 2];
     }
 
     public int getSpecialSelectorNumArgs(final int index) {
-        return MiscUtils.toIntExact((long) getSpecialSelectors().getObjectStorage()[index * 2 + 1]);
+        final ArrayObject selectors = getSpecialSelectors();
+        if (!selectors.isObjectType()) {
+            return 0;
+        }
+        return MiscUtils.toIntExact((long) selectors.getObjectStorage()[index * 2 + 1]);
     }
 
     public void setSemaphore(final int index, final AbstractSqueakObject semaphore) {
@@ -949,14 +1191,6 @@ public final class SqueakImageContext {
 
     public boolean interruptHandlerDisabled() {
         return options.disableInterruptHandler();
-    }
-
-    public boolean isPharo() {
-        return isPharo;
-    }
-
-    public void setPharo(final boolean value) {
-        isPharo = value;
     }
 
     public void attachDisplayIfNecessary() {
@@ -1142,7 +1376,20 @@ public final class SqueakImageContext {
     }
 
     public boolean isSemaphoreClass(final ClassObject object) {
-        return object == semaphoreClass;
+        if (object == semaphoreClass) {
+            return true;
+        }
+        // For Pharo: check if object is a subclass of Semaphore (e.g., SymbolTableSemaphore)
+        if (isPharo()) {
+            ClassObject current = object;
+            while (current != null) {
+                if (current == semaphoreClass) {
+                    return true;
+                }
+                current = current.getSuperclassOrNull();
+            }
+        }
+        return false;
     }
 
     public boolean isWideStringClass(final ClassObject object) {
@@ -1254,10 +1501,87 @@ public final class SqueakImageContext {
      * INTEROP
      */
 
+    public Object lookup(final String className) {
+        final Object specialObject = getSpecialObject(className);
+        if (specialObject != NilObject.SINGLETON) {
+            return specialObject;
+        }
+        if (isPharo()) {
+            return lookupPharoClass(className);
+        }
+        return smalltalk.send(this, "at:ifAbsent:", asByteSymbol(className), NilObject.SINGLETON);
+    }
+
+    private Object lookupPharoClass(final String className) {
+        // 1. Try Smalltalk globals dictionary (Pharo 13 layout)
+        final PointersObject globals = smalltalk;
+        if (globals == null || globals.getLayout() == null) {
+            // globals not yet initialized
+        } else if (globals.instsize() == 0) {
+            // smalltalk has 0 slots
+        } else {
+            final Object bindings = globals.instVarAt0Slow(1); // Dictionary array
+            if (bindings instanceof final ArrayObject array) {
+                final NativeObject selector = asByteString(className);
+                for (final Object binding : array.getObjectStorage()) {
+                    if (binding instanceof final PointersObject assoc) {
+                        if (assoc.instVarAt0Slow(ASSOCIATION.KEY) == selector) {
+                            return assoc.instVarAt0Slow(ASSOCIATION.VALUE);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Fallback: Iterate ClassTable
+        // Pharo 13 has a class table in hiddenRoots.
+        if (hiddenRoots != null) {
+            final Object[] pages = hiddenRoots.getObjectStorage();
+            final int numPages = Math.min(pages.length, SqueakImageConstants.CLASS_TABLE_ROOT_SLOTS);
+            for (int major = 0; major < numPages; major++) {
+                final Object pageObj = pages[major];
+                if (pageObj instanceof final ArrayObject page) {
+                    for (final Object classObj : page.getObjectStorage()) {
+                        if (classObj instanceof final ClassObject cl) {
+                            if (className.equals(cl.getClassName())) {
+                                return cl;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return NilObject.SINGLETON;
+    }
+
+    private Object getSpecialObject(final String className) {
+        final Object result = switch (className) {
+            case "Nil" -> nilClass;
+            case "False" -> falseClass;
+            case "True" -> trueClass;
+            case "Scheduler" -> schedulerAssociation;
+            case "Bitmap" -> bitmapClass;
+            case "SmallInteger" -> smallIntegerClass;
+            case "String" -> byteStringClass;
+            case "Array" -> arrayClass;
+            case "Float" -> floatClass;
+            case "MethodContext", "Context" -> methodContextClass;
+            case "BlockClosure" -> blockClosureClass;
+            case "FullBlockClosure" -> fullBlockClosureClass;
+            case "LargePositiveInteger" -> largePositiveIntegerClass;
+            case "LargeNegativeInteger" -> largeNegativeIntegerClass;
+            case "Character" -> characterClass;
+            case "Semaphore" -> semaphoreClass;
+            case "Fraction" -> fractionClass;
+            default -> NilObject.SINGLETON;
+        };
+        return result == null ? NilObject.SINGLETON : result;
+    }
+
     @TruffleBoundary
     public NativeObject toInteropSelector(final Message message) {
         assert message.getLibraryClass() == InteropLibrary.class;
-        return interopMessageToSelectorMap.computeIfAbsent(message, _ -> {
+        return interopMessageToSelectorMap.computeIfAbsent(message, ignored -> {
             final String libraryName = message.getLibraryClass().getSimpleName();
             final String libraryPrefix = libraryName.substring(0, 1).toLowerCase() + libraryName.substring(1, libraryName.length() - 7);
             final String messageName = message.getSimpleName();
@@ -1271,4 +1595,77 @@ public final class SqueakImageContext {
             return asByteSymbol(libraryPrefix + messageCapitalized + suffix);
         });
     }
+
+    /**
+     * Replace selector literals in a compiled method with the interned symbol objects from
+     * the image. This is necessary because OpalCompiler may create new symbol objects that
+     * are not identical (==) to the symbols stored in method dictionaries. Since method
+     * lookup uses object identity, non-interned symbols cause doesNotUnderstand errors.
+     */
+    @TruffleBoundary
+    private void internLiterals(final CompiledCodeObject method) {
+        for (int i = 0; i < method.getNumLiterals(); i++) {
+            final Object literal = method.getLiteral(i);
+            if (literal instanceof final NativeObject nativeLiteral && nativeLiteral.isByteType()) {
+                final NativeObject interned = findInternedSymbol(nativeLiteral);
+                if (interned != null && interned != nativeLiteral) {
+                    method.setLiteral(i, interned);
+                }
+            }
+        }
+    }
+
+    /**
+     * Find the interned symbol that matches the given NativeObject's bytes.
+     * Checks the special selectors and all class method dictionaries in the hierarchy.
+     */
+    @TruffleBoundary
+    private NativeObject findInternedSymbol(final NativeObject symbol) {
+        final byte[] bytes = symbol.getByteStorage();
+        /* Check special selectors first (most common case for arithmetic). */
+        final ArrayObject specialSelectors = getSpecialSelectors();
+        if (specialSelectors.isObjectType()) {
+            final Object[] selectorStorage = specialSelectors.getObjectStorage();
+            for (int i = 0; i < selectorStorage.length; i += 2) {
+                if (selectorStorage[i] instanceof final NativeObject sel && sel.isByteType()) {
+                    if (java.util.Arrays.equals(bytes, sel.getByteStorage())) {
+                        return sel;
+                    }
+                }
+            }
+        }
+        /*
+         * Search through well-known class hierarchies' method dictionaries.
+         * This covers SmallInteger, Integer, Number, Magnitude, Object, ProtoObject
+         * as well as UndefinedObject (nil class), and other common roots.
+         */
+        final ClassObject[] rootClasses = {smallIntegerClass, nilClass};
+        for (final ClassObject rootClass : rootClasses) {
+            ClassObject cls = rootClass;
+            while (cls != null) {
+                final NativeObject found = findSelectorInMethodDict(cls, bytes);
+                if (found != null) {
+                    return found;
+                }
+                cls = cls.getSuperclassOrNull();
+            }
+        }
+        return null;
+    }
+
+    private static NativeObject findSelectorInMethodDict(final ClassObject classObject, final byte[] selectorBytes) {
+        if (classObject.getMethodDict() == null) {
+            return null;
+        }
+        final Object[] variablePart = classObject.getMethodDict().getVariablePart();
+        for (final Object entry : variablePart) {
+            if (entry instanceof final NativeObject sel && sel.isByteType()) {
+                if (java.util.Arrays.equals(selectorBytes, sel.getByteStorage())) {
+                    return sel;
+                }
+            }
+        }
+        return null;
+    }
+
 }

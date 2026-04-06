@@ -96,7 +96,7 @@ public final class ThreadedFFIPlugin extends AbstractPrimitiveFactoryHolder {
     }
 
     /**
-     * Implements primitiveGetAddressOfOOP — returns a fake address for a Smalltalk object.
+     * Implements primitiveGetAddressOfOOP â€” returns a fake address for a Smalltalk object.
      * In the native Pharo VM, this returns the actual memory address. In TruffleSqueak,
      * we track the object and return a fake ID that our callout primitives can resolve.
      */
@@ -372,7 +372,7 @@ public final class ThreadedFFIPlugin extends AbstractPrimitiveFactoryHolder {
                 nfiTypes.add(nfiType);
                 isPointerArg.add("POINTER".equals(nfiType));
             } else {
-                /* ExternalType with COMPILED_SPEC — use old conversion. */
+                /* ExternalType with COMPILED_SPEC â€” use old conversion. */
                 try {
                     final NativeObject compiledSpec = readNode.executeNative(typePo, ObjectLayouts.EXTERNAL_TYPE.COMPILED_SPEC);
                     final int headerWord = compiledSpec.getInt(0);
@@ -428,7 +428,7 @@ public final class ThreadedFFIPlugin extends AbstractPrimitiveFactoryHolder {
             final String nfiType = typeIndex < nfiTypes.size() ? nfiTypes.get(typeIndex) : null;
             final boolean isPtr = typeIndex < isPointerArg.size() && isPointerArg.get(typeIndex);
             if (isPtr && args[i] instanceof final NativeObject no && no.isByteType()) {
-                /* ExternalAddress — read the fake address and resolve to native memory. */
+                /* ExternalAddress â€” read the fake address and resolve to native memory. */
                 final long fakeAddr = readAddressFromExternalAddress(no);
                 final NativeObject tracked = resolveTrackedObject(fakeAddr);
                 if (tracked != null) {
