@@ -578,11 +578,6 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
         senderOrFrameOrSize = frame;
     }
 
-    // The context represents primitive call which needs to be skipped when unwinding call stack.
-    public boolean isPrimitiveContext() {
-        return !hasClosure() && getCodeObject().hasPrimitive() && getInstructionPointerForBytecodeLoop() == 0;
-    }
-
     @TruffleBoundary
     public boolean pointsTo(final Object thang) {
         // TODO: make sure this works correctly
