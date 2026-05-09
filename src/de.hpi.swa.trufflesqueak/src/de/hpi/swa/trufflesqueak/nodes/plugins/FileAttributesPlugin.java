@@ -8,6 +8,7 @@
 package de.hpi.swa.trufflesqueak.nodes.plugins;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
+import com.oracle.truffle.api.dsl.Bind;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
 import com.oracle.truffle.api.dsl.NodeFactory;
 import com.oracle.truffle.api.dsl.Specialization;
@@ -60,8 +61,7 @@ public final class FileAttributesPlugin extends AbstractPrimitiveFactoryHolder {
         }
 
         @Specialization
-        protected final Object doMasks(@SuppressWarnings("unused") final Object receiver) {
-            final SqueakImageContext image = getContext();
+        protected static final Object doMasks(@SuppressWarnings("unused") final Object receiver, @Bind final SqueakImageContext image) {
             return image.asArrayOfObjects(MASK_TEMPLATE.clone());
         }
     }

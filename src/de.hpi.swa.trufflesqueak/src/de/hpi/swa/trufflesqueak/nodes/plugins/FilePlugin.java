@@ -752,4 +752,16 @@ public final class FilePlugin extends AbstractPrimitiveFactoryHolder {
             env.setCurrentWorkingDirectory(file);
         }
     }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveFileDescriptorType")
+    protected abstract static class PrimFileDescriptorTypeNode extends AbstractFilePluginPrimitiveNode implements Primitive1WithFallback {
+        @Specialization
+        protected static final long fileDescriptorType(@SuppressWarnings("unused") final Object receiver, final long fdNum) {
+            if (fdNum >= 0 && fdNum <= 2) {
+                return 2; // stdin, stdout, stderr are pipes
+            }
+            return -1; // everything else is unknown
+        }
+    }
 }

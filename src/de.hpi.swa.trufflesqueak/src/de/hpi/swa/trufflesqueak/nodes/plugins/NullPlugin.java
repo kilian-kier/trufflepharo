@@ -20,9 +20,11 @@ import com.oracle.truffle.api.nodes.DenyReplace;
 import com.oracle.truffle.api.nodes.Node;
 
 import de.hpi.swa.trufflesqueak.image.SqueakImageConstants;
+import de.hpi.swa.trufflesqueak.image.SqueakImageContext;
 import de.hpi.swa.trufflesqueak.io.SqueakDisplay;
 import de.hpi.swa.trufflesqueak.model.ArrayObject;
 import de.hpi.swa.trufflesqueak.model.BooleanObject;
+import de.hpi.swa.trufflesqueak.model.NativeObject;
 import de.hpi.swa.trufflesqueak.model.PointersObject;
 import de.hpi.swa.trufflesqueak.nodes.accessing.AbstractPointersObjectNodes.AbstractPointersObjectWriteNode;
 import de.hpi.swa.trufflesqueak.nodes.accessing.ArrayObjectNodes.ArrayObjectSizeNode;
@@ -31,6 +33,7 @@ import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveFactoryHolder;
 import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveNode;
 import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractSingletonPrimitiveNode;
 import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive0;
+import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive1;
 import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive1WithFallback;
 import de.hpi.swa.trufflesqueak.nodes.primitives.SqueakPrimitive;
 import de.hpi.swa.trufflesqueak.util.MiscUtils;
@@ -107,6 +110,16 @@ public final class NullPlugin extends AbstractPrimitiveFactoryHolder {
             writeNode.execute(node, arrayWithTwoSlots, 0, getUTCMicroseconds());
             writeNode.execute(node, arrayWithTwoSlots, 1, getOffsetFromGTMInSeconds());
             return arrayWithTwoSlots;
+        }
+    }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveGetCurrentWorkingDirectory")
+    protected abstract static class PrimGetCurrentWorkingDirectoryNode extends AbstractPrimitiveNode implements Primitive1 {
+        @Specialization
+        protected static final NativeObject getCurrentWorkingDirectory(@SuppressWarnings("unused") final Object receiver, @SuppressWarnings("unused") final Object buffer,
+                        @Bind final SqueakImageContext image) {
+            return image.asByteString(image.env.getCurrentWorkingDirectory().getPath());
         }
     }
 
