@@ -25,6 +25,7 @@ import de.hpi.swa.trufflesqueak.nodes.plugins.BitBltPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.CroquetPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.DSAPrims;
 import de.hpi.swa.trufflesqueak.nodes.plugins.DropPlugin;
+import de.hpi.swa.trufflesqueak.nodes.plugins.FileAttributesPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.FilePlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.Float64ArrayPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.FloatArrayPlugin;
@@ -91,6 +92,7 @@ public final class PrimitiveNodeFactory {
                         new CroquetPlugin(),
                         new DropPlugin(),
                         new DSAPrims(),
+                        new FileAttributesPlugin(),
                         new FilePlugin(),
                         new FloatArrayPlugin(),
                         new Float64ArrayPlugin(),
