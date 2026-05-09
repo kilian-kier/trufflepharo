@@ -154,7 +154,24 @@ public final class TruffleSqueakLauncher extends AbstractLanguageLauncher {
                 final Value result = context.eval(
                                 Source.newBuilder(getLanguageId(), sourceCode, "Compiler>>#evaluate:").internal(true).cached(false).mimeType(SqueakLanguageConfig.ST_MIME_TYPE).build());
                 if (!quiet) {
-                    println("[trufflesqueak] Result: " + (result.isString() ? result.asString() : result.toString()));
+                    final String resultString;
+                    if (result.isString()) {
+                        resultString = result.asString();
+                    } else if (result.isBoolean()) {
+                        resultString = Boolean.toString(result.asBoolean());
+                    } else if (result.fitsInLong()) {
+                        resultString = Long.toString(result.asLong());
+                    } else if (result.fitsInDouble()) {
+                        resultString = Double.toString(result.asDouble());
+                    } else {
+                        try {
+                            resultString = result.toString();
+                        } catch (final Exception e) {
+                            println("[trufflesqueak] Result: <unable to display: " + e.getMessage() + ">");
+                            return 0;
+                        }
+                    }
+                    println("[trufflesqueak] Result: " + resultString);
                 }
                 return 0;
             } else {
