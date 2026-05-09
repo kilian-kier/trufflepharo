@@ -97,8 +97,7 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
             closure = null;
             methodOrBlock = code;
             numArgs = code.getNumArgs();
-        } else if (((AbstractSqueakObjectWithHash) closureOrNil).getSqueakClass().isFullBlockClosureClass()) {
-            assert chunk.getImage().isPharo(); // TODO: confirm that Squeak handles Full Block Closures differently
+        } else if (chunk.getImage().isPharo() && ((AbstractSqueakObjectWithHash) closureOrNil).getSqueakClass().isFullBlockClosureClass()) {
             closure = null;
             methodOrBlock = code;
             numArgs = code.getNumArgs();

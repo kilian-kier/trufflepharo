@@ -414,7 +414,6 @@ public final class SqueakImageReader {
                     final SqueakImageChunk classInstance = chunkMap.get(classChunk.getWord(METACLASS.THIS_CLASS));
                     final ClassObject instanceClassObject = classInstance.asClassObject();
                     assert instanceClassObject != null;
-                    classObject.setOtherPointer(METACLASS.THIS_CLASS, instanceClassObject);
                     instanceClassObject.fillin(classInstance);
                     if (inst.contains(instanceClassObject.getSuperclassOrNull())) {
                         inst.add(instanceClassObject);
@@ -425,31 +424,43 @@ public final class SqueakImageReader {
                         case "FullBlockClosure" -> {
                             if (image.isFullBlockClosureClassUninitialized()) {
                                 image.initializeFullBlockClosureClass();
+                                image.getFullBlockClosureClass().setSqueakClass(classObject);
                                 image.getFullBlockClosureClass().fillin(classInstance);
+                                classInstance.becomeFullBlockClosureClass();
+                                classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getFullBlockClosureClass());
                             }
-                            classInstance.becomeFullBlockClosureClass();
                         }
                         case "BlockClosure" -> {
                             if (image.isBlockClosureClassUninitialized()) {
                                 image.initializeBlockClosureClass();
+                                image.getBlockClosureClass().setSqueakClass(classObject);
                                 image.getBlockClosureClass().fillin(classInstance);
+                                classInstance.becomeBlockClosureClass();
+                                classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getBlockClosureClass());
                             }
-                            classInstance.becomeBlockClosureClass();
                         }
                         case "CompiledMethod" -> {
-                            image.compiledMethodClass.fillin(classInstance);
-                            classInstance.becomeCompiledMethodClass();
+                            if (image.compiledMethodClass.needsSqueakClass() || image.compiledMethodClass.needsSqueakHash()) {
+                                image.compiledMethodClass.setSqueakClass(classObject);
+                                image.compiledMethodClass.fillin(classInstance);
+                                classInstance.becomeCompiledMethodClass();
+                                classObject.setOtherPointer(METACLASS.THIS_CLASS, image.compiledMethodClass);
+                            }
                         }
                         case "Process" -> {
                             if (image.isProcessClassUninitialized()) {
                                 image.initializeProcessClass();
+                                image.getProcessClass().setSqueakClass(classObject);
                                 image.getProcessClass().fillin(classInstance);
+                                classInstance.becomeProcessClass();
+                                classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getProcessClass());
                             }
-                            classInstance.becomeProcessClass();
                         }
                         case "PharoSyntaxTutorial" -> {
                             image.setIsPharo();
+                            classObject.setOtherPointer(METACLASS.THIS_CLASS, instanceClassObject);
                         }
+                        default -> classObject.setOtherPointer(METACLASS.THIS_CLASS, instanceClassObject);
                     }
                 }
             }

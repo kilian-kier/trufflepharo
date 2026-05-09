@@ -12,6 +12,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
 
+import com.oracle.truffle.api.frame.FrameDescriptor;
+import com.oracle.truffle.api.nodes.RootNode;
 import org.graalvm.collections.UnmodifiableEconomicMap;
 
 import com.oracle.truffle.api.Assumption;
@@ -217,7 +219,7 @@ public final class SqueakImageContext {
     public final Zip zip = new Zip();
 
     /* Pharo support */
-    private boolean isPharo;
+    @CompilationFinal private boolean isPharo = false;
 
     public SqueakImageContext(final SqueakLanguage squeakLanguage, final SqueakLanguage.Env environment) {
         language = squeakLanguage;
@@ -256,6 +258,9 @@ public final class SqueakImageContext {
                 return;
             }
 
+            if (isPharo()) {
+                return;
+            }
             final String prepareHeadlessImageScript = """
                             "Remove active context."
                             Processor activeProcess instVarNamed: #suspendedContext put: nil.
@@ -328,7 +333,10 @@ public final class SqueakImageContext {
     }
 
     @TruffleBoundary
-    public DoItRootNode getDoItContextNode(final ParsingRequest request) {
+    public RootNode getDoItContextNode(final ParsingRequest request) {
+        if (isPharo()) {
+            return getPharoDoItContextNode(request);
+        }
         final Source source = request.getSource();
         final String blockBody;
         if (isFileInFormat(source)) {
@@ -342,6 +350,24 @@ public final class SqueakImageContext {
         }
         final String sourceCode = "[[ " + blockBody + " ] on: Error do: [ :e | Interop throwException: e ]]";
         return DoItRootNode.create(this, language, (BlockClosureObject) evaluateUninterruptably(sourceCode));
+    }
+
+    @TruffleBoundary
+    private RootNode getPharoDoItContextNode(final ParsingRequest request) {
+        final String source = request.getSource().getCharacters().toString();
+        final Object compilerClass = lookup("OpalCompiler");
+        if (!(compilerClass instanceof final ClassObject opalCompiler)) {
+            throw CompilerDirectives.shouldNotReachHere("OpalCompiler not found in Pharo image");
+        }
+        final SqueakImageContext image = this;
+        return new RootNode(getLanguage(), new FrameDescriptor()) {
+            @Override
+            public Object execute(final VirtualFrame frame) {
+                final AbstractSqueakObjectWithClassAndHash compiler = (AbstractSqueakObjectWithClassAndHash) opalCompiler.send(image, "new");
+                compiler.send(image, "source:", image.asByteString("[ " + source + " ] on: Error do: [ :e | e freeze. e ]"));
+                return compiler.send(image, "evaluate");
+            }
+        };
     }
 
     private static boolean isFileInFormat(final Source source) {
@@ -1171,7 +1197,19 @@ public final class SqueakImageContext {
     }
 
     public boolean isSemaphoreClass(final ClassObject object) {
-        return object == semaphoreClass;
+        if (isPharo) {
+            // Subclasses of the semaphore class are also semaphores (e.g. SymbolTableSemaphore).
+            ClassObject current = object;
+            while (current != null) {
+                if (current == semaphoreClass) {
+                    return true;
+                }
+                current = current.getSuperclassOrNull();
+            }
+            return false;
+        } else {
+            return object == semaphoreClass;
+        }
     }
 
     public boolean isWideStringClass(final ClassObject object) {

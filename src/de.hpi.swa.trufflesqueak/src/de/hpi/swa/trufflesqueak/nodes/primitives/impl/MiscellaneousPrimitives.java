@@ -615,8 +615,12 @@ public final class MiscellaneousPrimitives extends AbstractPrimitiveFactoryHolde
     @SqueakPrimitive(indices = 158)
     public abstract static class PrimCompareString2Node extends AbstractPrimCompareStringNode implements Primitive1WithFallback {
         @Specialization(guards = {"receiver.isByteType()", "other.isByteType()"})
-        protected static final long doCompareAsciiOrder(final NativeObject receiver, final NativeObject other) {
-            return compareAsciiOrder(receiver, other) - 2L;
+        protected static final long doCompareAsciiOrder(final NativeObject receiver, final NativeObject other, @Bind final SqueakImageContext image) {
+            if (image.isPharo()) {
+                return compareAsciiOrder(receiver, other);
+            } else {
+                return compareAsciiOrder(receiver, other) - 2L;
+            }
         }
     }
 
