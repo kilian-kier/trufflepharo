@@ -286,11 +286,28 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
     @SqueakPrimitive(names = "primitiveLoadSymbolFromModule")
     protected abstract static class PrimLoadSymbolFromModuleNode extends AbstractFFIPrimitiveNode implements Primitive2WithFallback {
         @Specialization(guards = {"moduleSymbol.isByteType()", "module.isByteType()"})
-        protected static final NativeObject doLoadSymbol(final ClassObject receiver, final NativeObject moduleSymbol, final NativeObject module,
+        protected static final NativeObject doLoadSymbol(final Object receiver, final NativeObject moduleSymbol, final NativeObject module,
                         @Bind final SqueakImageContext image,
                         @CachedLibrary(limit = "2") final InteropLibrary lib) {
-            final String moduleSymbolName = moduleSymbol.asStringUnsafe();
-            final String moduleName = module.asStringUnsafe();
+            return loadSymbolFromModule(resolveExternalAddressClass(receiver, image), moduleSymbol.asStringUnsafe(), module.asStringUnsafe(), image, lib);
+        }
+
+        @Specialization(guards = "moduleSymbol.isByteType()")
+        protected static final NativeObject doLoadSymbolNilModule(final Object receiver, final NativeObject moduleSymbol, final NilObject module,
+                        @Bind final SqueakImageContext image) {
+            return newExternalAddress(resolveExternalAddressClass(receiver, image), 0L);
+        }
+
+        private static ClassObject resolveExternalAddressClass(final Object receiver, final SqueakImageContext image) {
+            if (receiver instanceof final ClassObject cls) {
+                return cls;
+            }
+            return (ClassObject) image.getExternalAddressClass();
+        }
+
+        @TruffleBoundary
+        private static NativeObject loadSymbolFromModule(final ClassObject receiver, final String moduleSymbolName, final String moduleName,
+                        final SqueakImageContext image, final InteropLibrary lib) {
             final CallTarget target = image.env.parseInternal(generateNFILoadSource(image, moduleName));
             final Object library;
             try {

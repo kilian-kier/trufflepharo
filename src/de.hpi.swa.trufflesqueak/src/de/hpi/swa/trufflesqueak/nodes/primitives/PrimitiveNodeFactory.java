@@ -198,9 +198,17 @@ public final class PrimitiveNodeFactory {
         }
 
         /* Check for normal plugin primitive. */
-        final NodeFactory<? extends AbstractPrimitiveNode> nodeFactory = PLUGIN_MAP.get(moduleName, EconomicMap.emptyMap()).get(functionName, EconomicMap.emptyMap()).get(numReceiverAndArguments);
+        NodeFactory<? extends AbstractPrimitiveNode> nodeFactory = PLUGIN_MAP.get(moduleName, EconomicMap.emptyMap()).get(functionName, EconomicMap.emptyMap()).get(numReceiverAndArguments);
         if (nodeFactory != null) {
             return createNode(nodeFactory, numReceiverAndArguments);
+        }
+
+        /* No module specified: also check the java implementation of SqueakFFIPrims. */
+        if (NULL_MODULE_NAME.equals(moduleName)) {
+            nodeFactory = PLUGIN_MAP.get("SqueakFFIPrims", EconomicMap.emptyMap()).get(functionName, EconomicMap.emptyMap()).get(numReceiverAndArguments);
+            if (nodeFactory != null) {
+                return createNode(nodeFactory, numReceiverAndArguments);
+            }
         }
 
         /* Check for external plugin primitive. */

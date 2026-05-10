@@ -482,6 +482,14 @@ public final class SqueakImageReader {
                     classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getProcessClass());
                 }
             }
+            case "ExternalFunction" -> {
+                if (image.getExternalFunctionClassOrNull() == null) {
+                    image.initializeExternalFunctionClass().setSqueakClass(classObject);
+                    image.getExternalFunctionClassOrNull().fillin(classInstance);
+                    classInstance.becomeExternalFunctionClass();
+                    classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getExternalFunctionClassOrNull());
+                }
+            }
             case "PharoSyntaxTutorial" -> {
                 image.setIsPharo();
                 classObject.setOtherPointer(METACLASS.THIS_CLASS, instanceClassObject);

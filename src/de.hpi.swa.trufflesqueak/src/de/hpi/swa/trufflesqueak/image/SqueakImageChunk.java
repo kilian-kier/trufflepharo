@@ -274,4 +274,8 @@ public final class SqueakImageChunk {
     public void becomeBlockClosureClass() {
         object = getImage().getBlockClosureClass();
     }
+
+    public void becomeExternalFunctionClass() {
+        object = getImage().getExternalFunctionClassOrNull();
+    }
 }
