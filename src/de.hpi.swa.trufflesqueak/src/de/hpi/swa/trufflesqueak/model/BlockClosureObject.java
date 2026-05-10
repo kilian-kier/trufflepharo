@@ -26,12 +26,16 @@ public final class BlockClosureObject extends AbstractSqueakObjectWithHash {
     @CompilationFinal private int numArgs = -1;
     @CompilationFinal private Object receiver;
     @CompilationFinal(dimensions = 0) private Object[] copiedValues;
+    @CompilationFinal private ClassObject squeakClassOverride;
 
     public BlockClosureObject(final SqueakImageChunk chunk) {
         super(chunk);
         assert chunk.getWordSize() >= BLOCK_CLOSURE.FIRST_COPIED_VALUE;
-        if (chunk.getSqueakClass().isBlockClosureClass() || isACleanBlockClosure(chunk.getSqueakClass())) {
+        final ClassObject closureClass = chunk.getSqueakClass();
+        if (closureClass.isBlockClosureClass()) {
             setIsABlockClosure();
+        } else if (isACleanBlockClosure(closureClass)) {
+            squeakClassOverride = closureClass;
         }
         final Object outerContextOrNil = chunk.getPointer(BLOCK_CLOSURE.OUTER_CONTEXT);
         outerContext = outerContextOrNil instanceof final ContextObject c ? c : null;
@@ -74,6 +78,7 @@ public final class BlockClosureObject extends AbstractSqueakObjectWithHash {
         copiedValues = original.copiedValues;
         numArgs = original.numArgs;
         receiver = original.receiver;
+        squeakClassOverride = original.squeakClassOverride;
     }
 
     @Override
@@ -101,6 +106,9 @@ public final class BlockClosureObject extends AbstractSqueakObjectWithHash {
 
     @Override
     public ClassObject getSqueakClass(final SqueakImageContext image) {
+        if (squeakClassOverride != null) {
+            return squeakClassOverride;
+        }
         return isABlockClosure() ? image.getBlockClosureClass() : image.getFullBlockClosureClass();
     }
 
