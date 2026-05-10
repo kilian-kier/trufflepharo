@@ -21,6 +21,7 @@ import com.oracle.truffle.api.nodes.Node;
 import de.hpi.swa.trufflesqueak.exceptions.SqueakExceptions.SqueakException;
 import de.hpi.swa.trufflesqueak.image.SqueakImageContext;
 import de.hpi.swa.trufflesqueak.model.CompiledCodeObject;
+import de.hpi.swa.trufflesqueak.model.NativeObject;
 import de.hpi.swa.trufflesqueak.nodes.accessing.SqueakObjectClassNode;
 import de.hpi.swa.trufflesqueak.nodes.dispatch.DispatchSelector0Node.DispatchDirect0Node;
 import de.hpi.swa.trufflesqueak.nodes.dispatch.LookupClassGuard;
@@ -63,7 +64,15 @@ public final class SqueakLanguageView implements TruffleObject {
                         @Cached(value = "create(view.delegate)", allowUncached = true) final LookupClassGuard guard,
                         @Bind final Node node,
                         @Cached(value = "create(guard)", allowUncached = true) final DispatchDirect0Node dispatchNode) {
-            return dispatchNode.execute(SqueakImageContext.get(node).externalSenderFrame, view.delegate);
+            final Object result = dispatchNode.execute(SqueakImageContext.get(node).externalSenderFrame, view.delegate);
+            if (result instanceof final NativeObject nativeObject) {
+                if (nativeObject.isByteType()) {
+                    return nativeObject.asStringUnsafe();
+                } else {
+                    return nativeObject.asStringFromWideString();
+                }
+            }
+            return result;
         }
 
         protected static final DispatchDirect0Node create(final LookupClassGuard guard) {

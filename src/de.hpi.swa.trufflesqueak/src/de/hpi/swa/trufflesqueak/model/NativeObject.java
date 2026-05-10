@@ -311,7 +311,7 @@ public final class NativeObject extends AbstractSqueakObjectWithClassAndHash {
                 final int fullLength = fullString.length();
                 /* Split at first non-printable character. */
                 final String displayString = fullString.split("[^\\p{Print}]", 2)[0];
-                if (fullLength <= 40 && fullLength == displayString.length()) {
+                if (fullLength <= 40 && displayString.length() <= fullLength) {
                     /* fullString is short and has printable characters only. */
                     return "'" + fullString + "'";
                 }
