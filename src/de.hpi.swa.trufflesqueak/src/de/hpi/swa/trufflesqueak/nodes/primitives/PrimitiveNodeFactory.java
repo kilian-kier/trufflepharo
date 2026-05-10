@@ -180,7 +180,13 @@ public final class PrimitiveNodeFactory {
         if (values[NAMED_PRIMITIVE_FUNCTION_NAME_INDEX] == NilObject.SINGLETON) {
             return null;
         }
-        final String moduleName = values[NAMED_PRIMITIVE_MODULE_NAME_INDEX] instanceof final NativeObject m ? m.asStringUnsafe() : NULL_MODULE_NAME;
+        final String moduleName;
+        if (values[NAMED_PRIMITIVE_MODULE_NAME_INDEX] instanceof final NativeObject m) {
+            final String name = m.asStringUnsafe();
+            moduleName = name.isEmpty() ? NULL_MODULE_NAME : name;
+        } else {
+            moduleName = NULL_MODULE_NAME;
+        }
         final String functionName = ((NativeObject) values[NAMED_PRIMITIVE_FUNCTION_NAME_INDEX]).asStringUnsafe();
 
         /* Check for singleton plugin primitive. */
