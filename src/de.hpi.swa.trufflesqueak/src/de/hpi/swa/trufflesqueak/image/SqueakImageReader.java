@@ -363,15 +363,15 @@ public final class SqueakImageReader {
                 final long potentialClassPtr = classTablePage.getWord(i);
                 assert potentialClassPtr != 0;
                 final SqueakImageChunk classChunk = chunkMap.get(potentialClassPtr);
+                /* Every class table entry is by definition a class, so instantiating it with asClassObject is semantically correct. */
+                classChunk.asClassObject();
                 if (classChunk.getSqueakClass() == image.metaClass) {
                     /* Derive classIndex from current position in class table. */
                     highestKnownClassIndex = p << SqueakImageConstants.CLASS_TABLE_MAJOR_INDEX_SHIFT | i;
                     assert classChunk.getWordSize() == METACLASS.INST_SIZE;
-                    final SqueakImageChunk classInstance = chunkMap.get(classChunk.getWord(METACLASS.THIS_CLASS));
                     final ClassObject metaClassObject = classChunk.asClassObject();
                     assert metaClassObject != null;
                     metaClassObject.setInstancesAreClasses();
-                    classInstance.asClassObject();
                 }
             }
         }
