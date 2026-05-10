@@ -53,6 +53,7 @@ import de.hpi.swa.trufflesqueak.nodes.plugins.ffi.FFIConstants.FFI_ERROR;
 import de.hpi.swa.trufflesqueak.nodes.plugins.ffi.FFIConstants.FFI_TYPES;
 import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveFactoryHolder;
 import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveNode;
+import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive0WithFallback;
 import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive1WithFallback;
 import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive2WithFallback;
 import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive3WithFallback;
@@ -366,6 +367,62 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
         @Specialization(guards = "arg.isLongType()")
         protected static final long doNativeLongs(@SuppressWarnings("unused") final Object receiver, final NativeObject arg) {
             return UnsafeUtils.allocateNativeLongs(arg.getLongStorage());
+        }
+    }
+
+    private static final int[] BASIC_TYPE_SIZES = {
+                    0, // 0: unused
+                    0, // 1: void
+                    4, // 2: float
+                    8, // 3: double
+                    1, // 4: uint8
+                    2, // 5: uint16
+                    4, // 6: uint32
+                    8, // 7: uint64
+                    1, // 8: sint8
+                    2, // 9: sint16
+                    4, // 10: sint32
+                    8, // 11: sint64
+                    8, // 12: pointer
+                    1, // 13: uchar
+    };
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveFillBasicType")
+    protected abstract static class PrimFillBasicTypeNode extends AbstractFFIPrimitiveNode implements Primitive0WithFallback {
+        @Specialization
+        protected final Object doFill(final PointersObject receiver,
+                        @Bind final SqueakImageContext image) {
+            final Object typeCodeObj = receiver.instVarAt0Slow(2);
+            final long typeCode = typeCodeObj instanceof final Long l ? l : 0L;
+            final ClassObject externalAddressClass = (ClassObject) image.getExternalAddressClass();
+            receiver.instVarAtPut0Slow(0, newExternalAddress(externalAddressClass, 0xDEADEFF10000L + typeCode));
+            return receiver;
+        }
+
+        private static NativeObject newExternalAddress(final ClassObject cls, final long pointer) {
+            return NativeObject.newNativeBytes(cls,
+                            new byte[]{(byte) pointer, (byte) (pointer >> 8), (byte) (pointer >> 16), (byte) (pointer >> 24), (byte) (pointer >> 32), (byte) (pointer >> 40),
+                                            (byte) (pointer >> 48), (byte) (pointer >> 56)});
+        }
+    }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveTypeByteSize")
+    protected abstract static class PrimTypeByteSizeNode extends AbstractPrimitiveNode implements Primitive0WithFallback {
+        @Specialization
+        protected static final long doSize(final PointersObject receiver) {
+            final Object handleObj = receiver.instVarAt0Slow(0);
+            if (handleObj instanceof final NativeObject handle && handle.isByteType()) {
+                final long magic = VarHandleUtils.getLongFromBytes(handle.getByteStorage(), 0);
+                if ((magic & 0xFFFFFFFF0000L) == 0xDEADEFF10000L) {
+                    final int typeCode = (int) (magic & 0xFFFF);
+                    if (typeCode >= 1 && typeCode < BASIC_TYPE_SIZES.length) {
+                        return BASIC_TYPE_SIZES[typeCode];
+                    }
+                }
+            }
+            throw PrimitiveFailed.andTransferToInterpreter();
         }
     }
 
