@@ -217,4 +217,23 @@ public final class ArrayUtils {
         fill(array, element);
         return array;
     }
+
+    public static byte[] longToAddressByteArray(final long l) {
+        final byte[] result = new byte[8];
+        long remaining = l;
+        for (int i = 0; i < 8; i++) {
+            result[i] = (byte) (remaining & 0xFF);
+            remaining >>= 8;
+        }
+        return result;
+    }
+
+    public static long addressByteArrayToLong(final byte[] b) {
+        long result = 0;
+        for (int i = 7; i >= 0; i--) {
+            result <<= 8;
+            result |= (b[i] & 0xFF);
+        }
+        return result;
+    }
 }

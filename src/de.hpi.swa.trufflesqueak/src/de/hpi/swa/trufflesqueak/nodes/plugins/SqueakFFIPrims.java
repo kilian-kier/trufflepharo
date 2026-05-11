@@ -192,7 +192,7 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
             final String name = readNode.executeNative(externalLibraryFunction, ObjectLayouts.EXTERNAL_LIBRARY_FUNCTION.NAME).asStringUnsafe();
             final String moduleName = getModuleName(readNode, receiver, externalLibraryFunction);
             final String nfiCodeParams = generateNfiCodeParamsString(nfiArgTypeList);
-            final String nfiCode = String.format("load \"%s\" {%s%s}", getPathOrFail(image, moduleName), name, nfiCodeParams);
+            final String nfiCode = String.format("load \"%s\" {%s%s}", getPath(image, moduleName), name, nfiCodeParams);
             try {
                 final Object value = calloutToLib(image, name, argumentsConverted, nfiCode);
                 assert value != null;
@@ -228,7 +228,7 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
             return nfiArgTypeList;
         }
 
-        private static Object calloutToLib(final SqueakImageContext image, final String name, final Object[] argumentsConverted, final String nfiCode)
+        protected static Object calloutToLib(final SqueakImageContext image, final String name, final Object[] argumentsConverted, final String nfiCode)
                         throws UnsupportedMessageException, ArityException, UnknownIdentifierException, UnsupportedTypeException {
             final Source source = Source.newBuilder("nfi", nfiCode, "native").build();
             final Object ffiTest = image.env.parseInternal(source).call();
@@ -246,13 +246,14 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
             }
         }
 
-        protected static final String getPathOrFail(final SqueakImageContext image, final String moduleName) {
+        protected static final String getPath(final SqueakImageContext image, final String moduleName) {
             final String libName = System.mapLibraryName(moduleName);
-            final TruffleFile libPath = image.getHomePath().resolve("lib" + File.separatorChar + libName);
-            if (!libPath.exists()) {
-                throw PrimitiveFailed.GENERIC_ERROR;
+            final TruffleFile localLibPath = image.getHomePath().resolve("lib" + File.separatorChar + libName);
+            if (localLibPath.exists()) {
+                return localLibPath.getAbsoluteFile().getPath();
             }
-            return libPath.getAbsoluteFile().getPath();
+
+            return libName; // The OS will later search for global system libraries
         }
 
         private static String generateNfiCodeParamsString(final List<String> argumentList) {
@@ -334,7 +335,7 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
 
         @TruffleBoundary
         private static Source generateNFILoadSource(final SqueakImageContext image, final String moduleName) {
-            return Source.newBuilder("nfi", String.format("load \"%s\"", getPathOrFail(image, moduleName)), "native").build();
+            return Source.newBuilder("nfi", String.format("load \"%s\"", getPath(image, moduleName)), "native").build();
         }
 
         private static NativeObject newExternalAddress(final ClassObject externalAddressClass, final long pointer) {

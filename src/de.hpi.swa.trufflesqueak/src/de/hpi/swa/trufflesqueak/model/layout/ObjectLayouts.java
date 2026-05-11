@@ -274,6 +274,13 @@ public final class ObjectLayouts {
         public static final int LOWCODE_NATIVE_CONTEXT_CLASS = 61;
     }
 
+    public static final class TF_BASIC_TYPE {
+        public static final int HANDLER = 0;
+        public static final int TYPE_NAME = 1;
+        public static final int TYPE_CODE = 2;
+        public static final int BYTE_SIZE = 3;
+    }
+
     private ObjectLayouts() {
     }
 }

@@ -40,6 +40,7 @@ import de.hpi.swa.trufflesqueak.nodes.plugins.PolyglotPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.SecurityPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.SoundCodecPrims;
 import de.hpi.swa.trufflesqueak.nodes.plugins.SqueakFFIPrims;
+import de.hpi.swa.trufflesqueak.nodes.plugins.ThreadedFFIPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.TruffleSqueakPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.UUIDPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.UnixOSProcessPlugin;
@@ -110,6 +111,7 @@ public final class PrimitiveNodeFactory {
                         new SocketPlugin(),
                         new SoundCodecPrims(),
                         new SqueakFFIPrims(),
+                        new ThreadedFFIPlugin(),
                         new UUIDPlugin(),
                         new ZipPlugin(),
                         OS.isWindows() ? new Win32OSProcessPlugin() : new UnixOSProcessPlugin()};
@@ -206,6 +208,14 @@ public final class PrimitiveNodeFactory {
         /* No module specified: also check the java implementation of SqueakFFIPrims. */
         if (NULL_MODULE_NAME.equals(moduleName)) {
             nodeFactory = PLUGIN_MAP.get("SqueakFFIPrims", EconomicMap.emptyMap()).get(functionName, EconomicMap.emptyMap()).get(numReceiverAndArguments);
+            if (nodeFactory != null) {
+                return createNode(nodeFactory, numReceiverAndArguments);
+            }
+        }
+
+        /* Redirecting to ThreadedFFIPlugin */
+        if (NULL_MODULE_NAME.equals(moduleName)) {
+            nodeFactory = PLUGIN_MAP.get("ThreadedFFIPlugin", EconomicMap.emptyMap()).get(functionName, EconomicMap.emptyMap()).get(numReceiverAndArguments);
             if (nodeFactory != null) {
                 return createNode(nodeFactory, numReceiverAndArguments);
             }
