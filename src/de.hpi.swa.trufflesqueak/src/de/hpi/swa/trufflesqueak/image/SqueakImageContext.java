@@ -214,6 +214,7 @@ public final class SqueakImageContext {
     /* Plugins */
     @CompilationFinal private InterpreterProxy interpreterProxy;
     public final Map<String, Object> loadedLibraries = new HashMap<>();
+    public final Map<Long, Object> nfiSymbols = new HashMap<>();
     public final B2D b2d = new B2D(this);
     public final BitBlt bitblt = new BitBlt(this);
     public String[] dropPluginFileList = ArrayUtils.EMPTY_STRINGS_ARRAY;
@@ -1062,6 +1063,10 @@ public final class SqueakImageContext {
         final int result = primFailCode;
         primFailCode = 0;
         return result;
+    }
+
+    public boolean hasPrimFailCode() {
+        return primFailCode >= 0;
     }
 
     public void setPrimFailCode(final PrimitiveFailed primitiveFailed) {

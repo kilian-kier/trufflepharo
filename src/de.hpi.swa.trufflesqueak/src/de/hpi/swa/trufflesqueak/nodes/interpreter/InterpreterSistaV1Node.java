@@ -2803,7 +2803,12 @@ public final class InterpreterSistaV1Node extends AbstractInterpreterNode {
     private int handleCallPrimitive(final VirtualFrame frame, final int pc, final VirtualState vstate, final State state) {
         if (getUnsignedInt(state.bytecode, pc + 3) == BC.LONG_STORE_TEMPORARY_VARIABLE) {
             assert vstate.sp > 0;
-            FrameAccess.setStackValue(frame, vstate.sp - 1, getErrorObject());
+            final SqueakImageContext image = getContext();
+            if (image.hasPrimFailCode()) {
+                FrameAccess.setStackValue(frame, vstate.sp - 1, getErrorObject());
+            } else {
+                FrameAccess.setStackValue(frame, vstate.sp - 1, NilObject.SINGLETON);
+            }
         }
         return pc + 3;
     }

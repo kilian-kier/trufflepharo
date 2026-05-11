@@ -40,6 +40,7 @@ import de.hpi.swa.trufflesqueak.nodes.plugins.PolyglotPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.SecurityPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.SoundCodecPrims;
 import de.hpi.swa.trufflesqueak.nodes.plugins.SqueakFFIPrims;
+import de.hpi.swa.trufflesqueak.nodes.plugins.ThreadedFFIPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.TruffleSqueakPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.UUIDPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.UnixOSProcessPlugin;
@@ -110,6 +111,7 @@ public final class PrimitiveNodeFactory {
                         new SocketPlugin(),
                         new SoundCodecPrims(),
                         new SqueakFFIPrims(),
+                        new ThreadedFFIPlugin(),
                         new UUIDPlugin(),
                         new ZipPlugin(),
                         OS.isWindows() ? new Win32OSProcessPlugin() : new UnixOSProcessPlugin()};
@@ -176,8 +178,18 @@ public final class PrimitiveNodeFactory {
 
     public static AbstractPrimitiveNode getOrCreateNamed(final CompiledCodeObject method, final int numReceiverAndArguments) {
         assert method.primitiveIndex() == PRIMITIVE_EXTERNAL_CALL_INDEX;
-        final Object[] values = ((ArrayObject) method.getLiteral(0)).getObjectStorage();
-        if (values[NAMED_PRIMITIVE_FUNCTION_NAME_INDEX] == NilObject.SINGLETON) {
+        final Object literal0 = method.getLiteral(0);
+        if (!(literal0 instanceof final ArrayObject literalArray)) {
+            return null;
+        }
+        if (!literalArray.isObjectType()) {
+            return null;
+        }
+        final Object[] values = literalArray.getObjectStorage();
+        if (values.length <= NAMED_PRIMITIVE_FUNCTION_NAME_INDEX || values[NAMED_PRIMITIVE_FUNCTION_NAME_INDEX] == NilObject.SINGLETON) {
+            return null;
+        }
+        if (!(values[NAMED_PRIMITIVE_FUNCTION_NAME_INDEX] instanceof final NativeObject functionNameObj)) {
             return null;
         }
         final String moduleName;
@@ -187,10 +199,10 @@ public final class PrimitiveNodeFactory {
         } else {
             moduleName = NULL_MODULE_NAME;
         }
-        final String functionName = ((NativeObject) values[NAMED_PRIMITIVE_FUNCTION_NAME_INDEX]).asStringUnsafe();
+        final String functionName = functionNameObj.asStringUnsafe();
 
         /* Check for singleton plugin primitive. */
-        if (numReceiverAndArguments == 1) { // TODO: expand to more args?
+        if (numReceiverAndArguments == 1) {
             final AbstractPrimitiveNode primitiveNode = SINGLETON_PLUGIN_MAP.get(moduleName, EconomicMap.emptyMap()).get(functionName);
             if (primitiveNode != null) {
                 return primitiveNode;
@@ -203,9 +215,13 @@ public final class PrimitiveNodeFactory {
             return createNode(nodeFactory, numReceiverAndArguments);
         }
 
-        /* No module specified: also check the java implementation of SqueakFFIPrims. */
+        /* No module specified: also check FFI plugin implementations. */
         if (NULL_MODULE_NAME.equals(moduleName)) {
             nodeFactory = PLUGIN_MAP.get("SqueakFFIPrims", EconomicMap.emptyMap()).get(functionName, EconomicMap.emptyMap()).get(numReceiverAndArguments);
+            if (nodeFactory != null) {
+                return createNode(nodeFactory, numReceiverAndArguments);
+            }
+            nodeFactory = PLUGIN_MAP.get("ThreadedFFIPlugin", EconomicMap.emptyMap()).get(functionName, EconomicMap.emptyMap()).get(numReceiverAndArguments);
             if (nodeFactory != null) {
                 return createNode(nodeFactory, numReceiverAndArguments);
             }
